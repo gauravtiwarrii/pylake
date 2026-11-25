@@ -55,11 +55,14 @@
 - Record run status and error logs
 - Support source selection and ordered transformations
 
-## Milestone 8: Analytics dashboard
+## Milestone 8: Data catalog and lineage
 
-- Compute real overview metrics from database and storage state
-- Surface recent uploads and pipeline activity
-- Remove placeholder data when the API is wired
+- Discover datasets and lakehouse tables
+- Support catalog documentation and tags
+- Profile bounded asset statistics
+- Capture transformation, SQL, and pipeline lineage
+- Provide upstream, downstream, and impact queries
+- Build the catalog and lineage frontend
 
 ## Milestone 9: Security and deployment
 

@@ -250,6 +250,83 @@ class SavedQuery(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, server_default=func.now())
 
 
+class CatalogAsset(Base):
+    __tablename__ = "catalog_assets"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "asset_type", "dataset_id", name="uq_catalog_dataset_asset"),
+        UniqueConstraint("workspace_id", "asset_type", "lakehouse_table_id", name="uq_catalog_table_asset"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False)
+    asset_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
+    tags_json: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    dataset_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("datasets.id", ondelete="CASCADE"), index=True, nullable=True)
+    lakehouse_table_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("lakehouse_tables.id", ondelete="CASCADE"), index=True, nullable=True)
+    format: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    layer: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, server_default=func.now())
+
+
+class CatalogColumn(Base):
+    __tablename__ = "catalog_columns"
+    __table_args__ = (UniqueConstraint("asset_id", "name", name="uq_catalog_asset_column"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("catalog_assets.id", ondelete="CASCADE"), index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    data_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    business_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    glossary_term: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, server_default=func.now())
+
+
+class CatalogProfile(Base):
+    __tablename__ = "catalog_profiles"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("catalog_assets.id", ondelete="CASCADE"), unique=True, index=True, nullable=False)
+    version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("dataset_versions.id", ondelete="SET NULL"), index=True, nullable=True)
+    row_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    column_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    statistics_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, server_default=func.now())
+
+
+class CatalogSchemaHistory(Base):
+    __tablename__ = "catalog_schema_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("catalog_assets.id", ondelete="CASCADE"), index=True, nullable=False)
+    version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("dataset_versions.id", ondelete="SET NULL"), index=True, nullable=True)
+    schema_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+
+
+class LineageEdge(Base):
+    __tablename__ = "lineage_edges"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False)
+    source_asset_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("catalog_assets.id", ondelete="CASCADE"), index=True, nullable=True)
+    target_asset_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("catalog_assets.id", ondelete="CASCADE"), index=True, nullable=True)
+    relation_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    source_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    execution_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    execution_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+
+
 class Pipeline(Base):
     __tablename__ = "pipelines"
     __table_args__ = (UniqueConstraint("workspace_id", "name", name="uq_pipeline_workspace_name"),)

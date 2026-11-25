@@ -38,6 +38,7 @@ docker compose exec backend python -m app.worker
 - Live worker heartbeat records verified in PostgreSQL.
 - Full Linux backend suite: `37 passed`.
 - Native DuckDB SQL tests passed after Linux integration fixes.
+- Catalog discovery, documentation, profiling, lineage, and cross-workspace tests passed.
 
 ## Blocked validation
 

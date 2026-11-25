@@ -16,6 +16,7 @@ from app.schemas.datasets import DatasetListResponse, DatasetResponse, PreviewRe
 from app.services.ingestion import detect_format, inspect_file, preview_file, sanitize_filename
 from app.storage.factory import get_storage
 from app.core.audit import record_audit
+from app.services.catalog import ensure_dataset_asset
 from app.services.lakehouse import ensure_bronze_version
 
 router = APIRouter(prefix="/workspaces", tags=["datasets"])
@@ -122,6 +123,7 @@ def upload_dataset(
         db.commit()
         try:
             ensure_bronze_version(db, storage, dataset, user.id)
+            ensure_dataset_asset(db, workspace_id, dataset)
         except Exception:
             logging.getLogger("pylake.lakehouse").exception("Failed to create Bronze lakehouse version")
         db.refresh(dataset)

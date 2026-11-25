@@ -26,6 +26,8 @@ from app.models.entities import (
 from app.services.lakehouse import frame_schema, quality_summary, read_source, write_parquet, checksum_file
 from app.services.lakehouse import copy_source_to_temp
 from app.storage.factory import get_storage
+from app.services.catalog import ensure_dataset_asset, ensure_table_asset
+from app.services.lineage import record_lineage
 
 
 def utcnow():
@@ -250,6 +252,21 @@ def execute_step(db, run_id: uuid.UUID, workspace_id: uuid.UUID, user_id: uuid.U
             raise ValueError("Dataset not found in workspace")
         if not storage.exists(dataset.storage_key):
             raise ValueError("Dataset source object is unavailable")
+        asset = ensure_dataset_asset(db, workspace_id, dataset)
+        record_lineage(
+            db,
+            workspace_id,
+            "PIPELINE_SOURCE",
+            "PIPELINE_RUN",
+            str(run_id),
+            "DATASET",
+            str(dataset.id),
+            source_asset_id=asset.id,
+            target_asset_id=asset.id,
+            execution_status="SUCCESS",
+            execution_id=str(run_id),
+            metadata={"step_id": str(step.id), "step_type": step.step_type},
+        )
         return {"dataset_id": str(dataset.id), "row_count": dataset.row_count}
 
     if step.step_type == "SQL_QUERY":
@@ -345,6 +362,19 @@ def execute_step(db, run_id: uuid.UUID, workspace_id: uuid.UUID, user_id: uuid.U
             key = f"workspaces/{workspace_id}/{target.value.lower()}/{dataset.id}/pipeline-runs/{run_id}/steps/{step.id}/data.parquet"
             existing = db.query(DatasetVersion).filter(DatasetVersion.storage_key == key).first()
             if existing:
+                source_asset = ensure_table_asset(db, workspace_id, table)
+                target_asset = ensure_table_asset(db, workspace_id, table)
+                record_lineage(
+                    db, workspace_id, "PIPELINE_MATERIALIZE",
+                    "PIPELINE_RUN", str(run_id),
+                    "DATASET_VERSION", str(existing.id),
+                    source_asset_id=source_asset.id,
+                    target_asset_id=target_asset.id,
+                    execution_status="SUCCESS",
+                    execution_id=str(run_id),
+                    metadata={"pipeline_step_id": str(step.id), "version": existing.version_number, "layer": existing.layer.value},
+                )
+                db.commit()
                 return {"row_count": existing.row_count, "version_id": str(existing.id), "layer": existing.layer.value}
             with output.open("rb") as source_file:
                 storage.upload(key, source_file, "application/vnd.apache.parquet")
@@ -369,6 +399,18 @@ def execute_step(db, run_id: uuid.UUID, workspace_id: uuid.UUID, user_id: uuid.U
             db.add(output_version)
             db.flush()
             table.current_layer = target
+            source_asset = ensure_table_asset(db, workspace_id, table)
+            target_asset = ensure_table_asset(db, workspace_id, table)
+            record_lineage(
+                db, workspace_id, "PIPELINE_MATERIALIZE",
+                "DATASET_VERSION", str(version.id),
+                "DATASET_VERSION", str(output_version.id),
+                source_asset_id=source_asset.id,
+                target_asset_id=target_asset.id,
+                execution_status="SUCCESS",
+                execution_id=str(run_id),
+                metadata={"pipeline_step_id": str(step.id), "source_version": version.version_number, "target_version": output_version.version_number, "layer": target.value},
+            )
             db.commit()
             output_dir.cleanup()
             return {"row_count": frame.height, "version_id": str(output_version.id), "layer": target.value}

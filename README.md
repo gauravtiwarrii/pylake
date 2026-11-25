@@ -260,6 +260,25 @@ docker compose up --build worker
 
 The API and worker share the PostgreSQL database. Scheduled runs use standard cron expressions and explicit IANA timezones.
 
+## Milestone 8 data catalog and lineage
+
+The workspace catalog discovers uploaded datasets and Silver/Gold lakehouse tables. Catalog entries include descriptions, tags, ownership, format, layer, schema, and version metadata.
+
+Authorized editors can update asset and column documentation. Profiling uses a bounded 10,000-row sample for available column statistics and records null counts, distinct counts, numeric minimum/maximum/mean, and uncomputed fields when unavailable.
+
+Catalog APIs:
+
+- `GET /api/v1/workspaces/{workspace_id}/catalog`
+- `GET /api/v1/workspaces/{workspace_id}/catalog/{asset_id}`
+- `PATCH /api/v1/workspaces/{workspace_id}/catalog/{asset_id}`
+- `PATCH /api/v1/workspaces/{workspace_id}/catalog/{asset_id}/columns/{column_name}`
+- `GET /api/v1/workspaces/{workspace_id}/catalog/{asset_id}/profile`
+- `GET /api/v1/workspaces/{workspace_id}/catalog/{asset_id}/schema`
+- `GET /api/v1/workspaces/{workspace_id}/catalog/{asset_id}/lineage`
+- `GET /api/v1/workspaces/{workspace_id}/catalog/{asset_id}/impact`
+
+The catalog is available at `/workspaces/{workspaceId}/catalog`. Lineage records actual Bronze-to-Silver/Gold promotions, transformations, successful SQL query sources, and successful pipeline materializations. Failed executions are not represented as successful output lineage.
+
 ## Milestone 7 observability and hardening
 
 PyLake emits structured JSON logs with request IDs and logs only redacted operational context. Sensitive field names and bearer credentials are redacted.

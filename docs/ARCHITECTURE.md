@@ -71,3 +71,16 @@ pylake/
 5. **Concurrency** can cause inconsistent job state unless pipeline runs use durable database records and controlled transitions.
 6. **Python 3.14 package compatibility** may lag some libraries; production containers should use Python 3.12 until the project validates 3.14 support.
 7. **Docker availability** differs on developer systems; the app must also provide direct local commands.
+
+## Catalog and lineage
+
+Catalog assets are lightweight workspace-scoped discovery records:
+
+- `DATASET` assets represent original uploaded datasets and Bronze sources.
+- `TABLE` assets represent lakehouse tables and their current layer.
+- Catalog columns retain business documentation independently from physical schemas.
+- Profile snapshots cache bounded profiling results and are linked to a specific dataset version.
+- Schema history records the schema observed for each catalog version.
+- Lineage edges persist source/target asset and execution metadata.
+
+Lineage is recorded by successful promotions, transformations, SQL executions, and pipeline materializations. The graph and impact APIs never infer dependencies from asset names alone.

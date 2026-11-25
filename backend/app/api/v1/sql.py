@@ -30,6 +30,10 @@ from app.schemas.sql import (
     SavedQueryUpdate,
 )
 from app.storage.factory import get_storage
+from app.services.catalog import ensure_table_asset
+from app.services.lineage import record_lineage
+from app.engines.query_validator import validate_read_only_sql
+from app.engines.catalog_resolver import resolve_catalog
 
 router = APIRouter(prefix="/workspaces", tags=["sql"])
 
@@ -73,6 +77,29 @@ def execute_sql(
         history.error_message = None
         db.commit()
         db.refresh(history)
+        table_names, _ = validate_read_only_sql(payload.sql)
+        resolved = resolve_catalog(db, workspace_id, table_names)
+        for logical_name, version in resolved.items():
+            table = db.query(LakehouseTable).join(DatasetVersion).filter(
+                DatasetVersion.id == version.id,
+                LakehouseTable.id == version.lakehouse_table_id,
+            ).first()
+            if table:
+                asset = ensure_table_asset(db, workspace_id, table)
+                record_lineage(
+                    db,
+                    workspace_id,
+                    "QUERY",
+                    "DATASET_VERSION",
+                    str(version.id),
+                    "SQL_QUERY",
+                    str(history.id),
+                    source_asset_id=asset.id,
+                    execution_status="SUCCESS",
+                    execution_id=str(history.id),
+                    metadata={"table": logical_name, "version": version.version_number},
+                )
+        db.commit()
         return SQLExecuteResponse(
             id=history.id,
             status="SUCCESS",

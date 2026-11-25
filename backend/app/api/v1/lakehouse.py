@@ -40,6 +40,8 @@ from app.services.lakehouse import (
 )
 from app.storage.factory import get_storage
 from app.core.audit import record_audit
+from app.services.catalog import ensure_dataset_asset, ensure_table_asset
+from app.services.lineage import record_lineage
 
 router = APIRouter(prefix="/workspaces", tags=["lakehouse"])
 
@@ -223,6 +225,22 @@ def promote_table(
         ))
         table.current_layer = target
         record_audit(db, workspace_id, user.id, "DATASET_VERSION_PROMOTED", "dataset_version", version.id, {"target_layer": target.value})
+        source_asset = ensure_dataset_asset(db, workspace_id, dataset)
+        target_asset = ensure_table_asset(db, workspace_id, table)
+        record_lineage(
+            db,
+            workspace_id,
+            "TRANSFORM" if source.layer != target else "PROMOTE",
+            "DATASET_VERSION",
+            str(source.id),
+            "DATASET_VERSION",
+            str(version.id),
+            source_asset_id=source_asset.id,
+            target_asset_id=target_asset.id,
+            execution_status="SUCCESS",
+            execution_id=str(version.id),
+            metadata={"source_version": source.version_number, "target_version": version.version_number, "layer": target.value},
+        )
         db.commit()
         db.refresh(version)
         output_dir.cleanup()
@@ -394,6 +412,22 @@ def transform_table(
         ))
         table.current_layer = target
         record_audit(db, workspace_id, user.id, "DATASET_TRANSFORMED", "dataset_version", version.id, {"target_layer": target.value})
+        source_asset = ensure_dataset_asset(db, workspace_id, dataset)
+        target_asset = ensure_table_asset(db, workspace_id, table)
+        record_lineage(
+            db,
+            workspace_id,
+            "TRANSFORM",
+            "DATASET_VERSION",
+            str(source.id),
+            "DATASET_VERSION",
+            str(version.id),
+            source_asset_id=source_asset.id,
+            target_asset_id=target_asset.id,
+            execution_status="COMPLETED",
+            execution_id=str(record.id),
+            metadata={"transformation_type": payload.transformation_type, "source_version": source.version_number, "target_version": version.version_number},
+        )
         db.commit()
         db.refresh(version)
         output_dir.cleanup()
