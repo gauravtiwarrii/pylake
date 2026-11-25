@@ -211,6 +211,55 @@ The SQL editor is available at `/workspaces/{workspaceId}/sql`.
 
 DuckDB provides local analytical SQL rather than distributed execution or complete PostgreSQL compatibility.
 
+## Milestone 6 pipeline orchestration
+
+Pipeline runs are queued in PostgreSQL/SQLite and executed by a separate database-backed worker. The worker atomically claims `QUEUED` runs, executes dependency-ordered steps, persists step state, and recovers stale `RUNNING` jobs after a configurable timeout.
+
+Supported step types:
+
+- `SOURCE_DATASET`
+- `TRANSFORM`
+- `DATA_QUALITY`
+- `SQL_QUERY`
+- `MATERIALIZE`
+
+The pipeline editor is available at `/workspaces/{workspaceId}/pipelines`.
+
+### Pipeline API
+
+- `POST /api/v1/workspaces/{workspace_id}/pipelines`
+- `GET /api/v1/workspaces/{workspace_id}/pipelines`
+- `GET /api/v1/workspaces/{workspace_id}/pipelines/{pipeline_id}`
+- `PATCH /api/v1/workspaces/{workspace_id}/pipelines/{pipeline_id}`
+- `DELETE /api/v1/workspaces/{workspace_id}/pipelines/{pipeline_id}`
+- `POST /api/v1/workspaces/{workspace_id}/pipelines/{pipeline_id}/validate`
+- `POST /api/v1/workspaces/{workspace_id}/pipelines/{pipeline_id}/runs`
+- `GET /api/v1/workspaces/{workspace_id}/pipelines/{pipeline_id}/runs`
+- `GET /api/v1/workspaces/{workspace_id}/pipelines/runs/{run_id}`
+- `POST /api/v1/workspaces/{workspace_id}/pipelines/runs/{run_id}/cancel`
+- `GET /api/v1/workspaces/{workspace_id}/pipelines/runs/{run_id}/logs`
+- `POST /api/v1/workspaces/{workspace_id}/pipelines/{pipeline_id}/schedules`
+- `GET /api/v1/workspaces/{workspace_id}/pipelines/{pipeline_id}/schedules`
+- `PATCH /api/v1/workspaces/{workspace_id}/pipelines/schedules/{schedule_id}`
+- `DELETE /api/v1/workspaces/{workspace_id}/pipelines/schedules/{schedule_id}`
+
+### Worker commands
+
+Local worker:
+
+```powershell
+cd backend
+python -m app.worker
+```
+
+Docker Compose worker:
+
+```powershell
+docker compose up --build worker
+```
+
+The API and worker share the PostgreSQL database. Scheduled runs use standard cron expressions and explicit IANA timezones.
+
 Frontend:
 
 ```powershell

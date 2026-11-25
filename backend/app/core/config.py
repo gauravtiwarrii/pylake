@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     sql_query_timeout_seconds: int = 30
     sql_max_returned_rows: int = 1000
     sql_max_result_bytes: int = 10 * 1024 * 1024
+    pipeline_job_claim_seconds: int = 300
+    pipeline_worker_poll_seconds: int = 2
     auth_secret: str = "change-this-secret-before-production"
     auth_cookie_name: str = "pylake_session"
     csrf_cookie_name: str = "pylake_csrf"

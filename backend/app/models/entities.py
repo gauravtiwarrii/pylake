@@ -55,6 +55,28 @@ class QueryExecutionStatus(str, enum.Enum):
     FAILED = "FAILED"
 
 
+class PipelineStatus(str, enum.Enum):
+    DRAFT = "DRAFT"
+    ACTIVE = "ACTIVE"
+    DISABLED = "DISABLED"
+
+
+class RunStatus(str, enum.Enum):
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class StepStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    SKIPPED = "SKIPPED"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -224,5 +246,82 @@ class SavedQuery(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     sql_text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, server_default=func.now())
+
+
+class Pipeline(Base):
+    __tablename__ = "pipelines"
+    __table_args__ = (UniqueConstraint("workspace_id", "name", name="uq_pipeline_workspace_name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[PipelineStatus] = mapped_column(Enum(PipelineStatus, name="pipeline_status"), default=PipelineStatus.DRAFT, nullable=False)
+    configuration_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, server_default=func.now())
+
+
+class PipelineStep(Base):
+    __tablename__ = "pipeline_steps"
+    __table_args__ = (UniqueConstraint("pipeline_id", "execution_order", name="uq_pipeline_step_order"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    pipeline_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("pipelines.id", ondelete="CASCADE"), index=True, nullable=False)
+    step_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    step_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    configuration_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    dependencies_json: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    execution_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+
+
+class PipelineRun(Base):
+    __tablename__ = "pipeline_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    pipeline_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("pipelines.id", ondelete="CASCADE"), index=True, nullable=False)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False)
+    triggered_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
+    status: Mapped[RunStatus] = mapped_column(Enum(RunStatus, name="pipeline_run_status"), default=RunStatus.QUEUED, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    worker_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+
+
+class PipelineStepRun(Base):
+    __tablename__ = "pipeline_step_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    pipeline_run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("pipeline_runs.id", ondelete="CASCADE"), index=True, nullable=False)
+    pipeline_step_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("pipeline_steps.id", ondelete="CASCADE"), index=True, nullable=False)
+    status: Mapped[StepStatus] = mapped_column(Enum(StepStatus, name="pipeline_step_status"), default=StepStatus.PENDING, nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rows_processed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_metadata_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class PipelineSchedule(Base):
+    __tablename__ = "pipeline_schedules"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    pipeline_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("pipelines.id", ondelete="CASCADE"), index=True, nullable=False)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False)
+    cron_expression: Mapped[str] = mapped_column(String(200), nullable=False)
+    timezone: Mapped[str] = mapped_column(String(100), default="UTC", nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, server_default=func.now())

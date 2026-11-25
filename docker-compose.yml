@@ -70,6 +70,26 @@ services:
       backend:
         condition: service_healthy
 
+  worker:
+    build:
+      context: ./backend
+    command: ["python", "-m", "app.worker"]
+    environment:
+      APP_ENV: local
+      DATABASE_URL: postgresql+psycopg://pylake:pylake@postgres:5432/pylake
+      SQLITE_DATABASE_URL: sqlite:///./pylake.db
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: pylake
+      MINIO_SECRET_KEY: pylake-local-secret
+      MINIO_BUCKET: pylake
+    volumes:
+      - ./storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   minio_data:
