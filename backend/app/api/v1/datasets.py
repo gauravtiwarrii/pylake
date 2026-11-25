@@ -15,6 +15,7 @@ from app.models.entities import Dataset, DatasetStatus, User, WorkspaceRole
 from app.schemas.datasets import DatasetListResponse, DatasetResponse, PreviewResponse
 from app.services.ingestion import detect_format, inspect_file, preview_file, sanitize_filename
 from app.storage.factory import get_storage
+from app.services.lakehouse import ensure_bronze_version
 
 router = APIRouter(prefix="/workspaces", tags=["datasets"])
 
@@ -116,6 +117,10 @@ def upload_dataset(
         dataset.ingestion_status = DatasetStatus.COMPLETED
         dataset.ingestion_error = None
         db.commit()
+        try:
+            ensure_bronze_version(db, storage, dataset, user.id)
+        except Exception:
+            logging.getLogger("pylake.lakehouse").exception("Failed to create Bronze lakehouse version")
         db.refresh(dataset)
     except Exception as error:
         logger_message = f"Dataset {dataset.id} ingestion failed"

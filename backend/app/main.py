@@ -9,6 +9,7 @@ from app.api.v1.health import router as health_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.workspaces import router as workspaces_router
 from app.api.v1.datasets import router as datasets_router
+from app.api.v1.lakehouse import router as lakehouse_router
 from app.core.config import get_settings
 from app.core.db import Base, engine
 from app.core.security import sha256
@@ -42,6 +43,7 @@ app.include_router(health_router, prefix=settings.api_v1_prefix, tags=["health"]
 app.include_router(auth_router, prefix=settings.api_v1_prefix)
 app.include_router(workspaces_router, prefix=settings.api_v1_prefix)
 app.include_router(datasets_router, prefix=settings.api_v1_prefix)
+app.include_router(lakehouse_router, prefix=settings.api_v1_prefix)
 
 
 class CsrfMiddleware(BaseHTTPMiddleware):

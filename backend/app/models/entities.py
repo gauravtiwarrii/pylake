@@ -31,6 +31,24 @@ class DatasetStatus(str, enum.Enum):
     FAILED = "FAILED"
 
 
+class LakehouseLayer(str, enum.Enum):
+    BRONZE = "BRONZE"
+    SILVER = "SILVER"
+    GOLD = "GOLD"
+
+
+class LakehouseVersionStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
+class TransformationStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -110,3 +128,66 @@ class Dataset(Base):
     ingestion_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, server_default=func.now())
+
+
+class LakehouseTable(Base):
+    __tablename__ = "lakehouse_tables"
+    __table_args__ = (UniqueConstraint("workspace_id", "name", name="uq_lakehouse_table_workspace_name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    current_layer: Mapped[LakehouseLayer] = mapped_column(Enum(LakehouseLayer, name="lakehouse_layer"), default=LakehouseLayer.BRONZE, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, server_default=func.now())
+
+
+class DatasetVersion(Base):
+    __tablename__ = "dataset_versions"
+    __table_args__ = (UniqueConstraint("dataset_id", "version_number", name="uq_dataset_version_number"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("datasets.id", ondelete="CASCADE"), index=True, nullable=False)
+    lakehouse_table_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("lakehouse_tables.id", ondelete="SET NULL"), index=True, nullable=True)
+    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    layer: Mapped[LakehouseLayer] = mapped_column(Enum(LakehouseLayer, name="lakehouse_layer"), nullable=False)
+    storage_key: Mapped[str] = mapped_column(String(1000), nullable=False)
+    schema_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    row_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    column_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    file_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    file_format: Mapped[str] = mapped_column(String(20), nullable=False)
+    checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+    status: Mapped[LakehouseVersionStatus] = mapped_column(Enum(LakehouseVersionStatus, name="lakehouse_version_status"), default=LakehouseVersionStatus.PENDING, nullable=False)
+
+
+class StorageObject(Base):
+    __tablename__ = "storage_objects"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False)
+    dataset_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("datasets.id", ondelete="CASCADE"), index=True, nullable=True)
+    version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("dataset_versions.id", ondelete="CASCADE"), index=True, nullable=True)
+    layer: Mapped[LakehouseLayer] = mapped_column(Enum(LakehouseLayer, name="lakehouse_layer"), nullable=False)
+    storage_key: Mapped[str] = mapped_column(String(1000), unique=True, nullable=False)
+    file_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+
+
+class TransformationRecord(Base):
+    __tablename__ = "transformation_records"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("datasets.id", ondelete="CASCADE"), index=True, nullable=False)
+    source_version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("dataset_versions.id", ondelete="CASCADE"), index=True, nullable=False)
+    output_version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("dataset_versions.id", ondelete="SET NULL"), index=True, nullable=True)
+    transformation_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    configuration_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    execution_status: Mapped[TransformationStatus] = mapped_column(Enum(TransformationStatus, name="transformation_status"), default=TransformationStatus.PENDING, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())

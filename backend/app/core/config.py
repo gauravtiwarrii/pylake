@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     local_storage_dir: str = "./storage"
     max_upload_size_bytes: int = 100 * 1024 * 1024
     storage_backend: str = "local"
+    parquet_compression: str = "snappy"
     auth_secret: str = "change-this-secret-before-production"
     auth_cookie_name: str = "pylake_session"
     csrf_cookie_name: str = "pylake_csrf"
