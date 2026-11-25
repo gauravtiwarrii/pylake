@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     max_upload_size_bytes: int = 100 * 1024 * 1024
     storage_backend: str = "local"
     parquet_compression: str = "snappy"
+    sql_query_timeout_seconds: int = 30
+    sql_max_returned_rows: int = 1000
+    sql_max_result_bytes: int = 10 * 1024 * 1024
     auth_secret: str = "change-this-secret-before-production"
     auth_cookie_name: str = "pylake_session"
     csrf_cookie_name: str = "pylake_csrf"
