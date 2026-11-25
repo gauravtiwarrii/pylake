@@ -58,14 +58,14 @@ export default function WorkspacesPage() {
   if (loading) return <main className="p-8 text-[#98a0b3]">Loading workspace...</main>;
 
   return (
-    <main className="min-h-screen px-6 py-8 md:px-10">
+    <main className="min-h-[calc(100vh-64px)] px-4 py-8 md:px-7 lg:px-8">
       <div className="mx-auto max-w-6xl">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm text-[#98a0b3]">{user?.email}</p>
             <h1 className="mt-1 text-3xl font-semibold">Workspaces</h1>
           </div>
-          <button onClick={() => setCreateOpen(true)} className="flex h-10 items-center gap-2 rounded-md bg-[#7dd3fc] px-4 text-sm font-medium text-[#071018]">
+          <button onClick={() => setCreateOpen(true)} className="flex h-10 items-center gap-2 rounded-lg bg-[var(--accent)] px-4 text-sm font-medium text-[var(--accent-foreground)]">
             <Plus size={16} /> New workspace
           </button>
         </div>
@@ -73,7 +73,7 @@ export default function WorkspacesPage() {
         {error && <div className="mt-6 rounded-md border border-red-900 bg-red-950/40 px-4 py-3 text-sm text-red-300">{error}</div>}
 
         {workspaces.length === 0 ? (
-          <div className="mt-8 rounded-lg border border-dashed border-[#303646] p-10 text-center">
+          <div className="mt-8 rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)] p-10 text-center">
             <p className="font-medium">No workspaces yet</p>
             <p className="mt-2 text-sm text-[#98a0b3]">Create your first workspace to organize data and pipelines.</p>
           </div>
@@ -81,7 +81,7 @@ export default function WorkspacesPage() {
           <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {workspaces.map((workspace) => (
               <Link key={workspace.id} href={`/workspaces/${workspace.id}`}
-                className="rounded-lg border border-[#242936] bg-[#11141b] p-5 transition-colors hover:border-[#3c4457]">
+                className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 transition-colors hover:border-[var(--border-strong)]">
                 <p className="font-medium">{workspace.name}</p>
                 <p className="mt-1 text-sm text-[#98a0b3]">{workspace.slug}</p>
                 {workspace.description && <p className="mt-4 text-sm text-[#98a0b3]">{workspace.description}</p>}
