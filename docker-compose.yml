@@ -16,7 +16,8 @@ services:
       retries: 20
 
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
+    profiles: ["minio"]
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: pylake
@@ -51,8 +52,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
       interval: 10s
@@ -73,7 +72,7 @@ services:
   worker:
     build:
       context: ./backend
-    command: ["python", "-m", "app.worker"]
+    command: ["sh", "-c", "python -m alembic upgrade head && python -m app.worker"]
     environment:
       APP_ENV: local
       DATABASE_URL: postgresql+psycopg://pylake:pylake@postgres:5432/pylake
@@ -87,7 +86,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
+      backend:
         condition: service_healthy
 
 volumes:

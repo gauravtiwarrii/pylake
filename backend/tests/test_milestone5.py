@@ -97,7 +97,7 @@ def test_select_where_group_order_aggregation_cte_and_history(environment):
         json={"sql": "SELECT score, COUNT(*) AS total FROM customers WHERE score >= 20 GROUP BY score ORDER BY score", "query_name": "scores"},
         headers=headers,
     )
-    assert result.status_code == 200
+    assert result.status_code == 200, result.text
     assert result.json()["status"] == "SUCCESS"
     assert result.json()["returned_rows"] == 1
     assert result.json()["rows"][0]["total"] == 2
@@ -146,7 +146,7 @@ def test_join_window_subquery_and_catalog(environment):
         json={"sql": "SELECT c.name, o.total, SUM(o.total) OVER (PARTITION BY c.name) AS running_total FROM customers c JOIN orders o ON c.id = o.customer_id ORDER BY c.name"},
         headers=headers,
     )
-    assert result.status_code == 200
+    assert result.status_code == 200, result.text
     assert result.json()["returned_rows"] == 3
 
     subquery = client.post(

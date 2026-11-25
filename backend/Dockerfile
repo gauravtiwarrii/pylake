@@ -6,9 +6,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 
 COPY pyproject.toml ./
 COPY app ./app
+COPY alembic.ini ./
+COPY alembic ./alembic
+COPY tests ./tests
 
-RUN python -m pip install --upgrade pip && pip install .
+RUN python -m pip install --upgrade pip && pip install ".[dev]"
 
 EXPOSE 8000
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "python -m alembic upgrade head && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"]

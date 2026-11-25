@@ -54,8 +54,8 @@ def execute_sql(
                 escaped_name = logical_name.replace('"', '""')
                 escaped_path = str(path).replace("'", "''")
                 connection.execute(
-                    f'CREATE TEMPORARY VIEW "{escaped_name}" AS SELECT * FROM read_parquet(?)',
-                    [escaped_path],
+                    f'CREATE TEMPORARY VIEW "{escaped_name}" AS '
+                    f"SELECT * FROM read_parquet('{escaped_path}')",
                 )
             settings = get_settings()
             timer = threading.Timer(
@@ -67,18 +67,19 @@ def execute_sql(
                 result = connection.execute(sql)
             finally:
                 timer.cancel()
-            arrow = result.fetch_arrow_table()
-            names = [field.name for field in arrow.schema]
-            types = [str(field.type) for field in arrow.schema]
-            rows = arrow.slice(0, settings.sql_max_returned_rows).to_pylist()
+            description = result.description or []
+            names = [column[0] for column in description]
+            types = [str(column[1]) if column[1] is not None else "UNKNOWN" for column in description]
+            fetched = result.fetchmany(settings.sql_max_returned_rows + 1)
+            truncated = len(fetched) > settings.sql_max_returned_rows
+            rows = fetched[:settings.sql_max_returned_rows]
 
             serialized_rows: list[dict[str, Any]] = []
             estimated_size = 0
-            truncated = len(rows) < arrow.num_rows
-            for row in rows:
+            for values in rows:
                 serialized_row = {
-                    key: serialize_value(value)
-                    for key, value in row.items()
+                    name: serialize_value(value)
+                    for name, value in zip(names, values)
                 }
                 estimated_size += len(str(serialized_row).encode("utf-8"))
                 if estimated_size > settings.sql_max_result_bytes:
@@ -90,8 +91,8 @@ def execute_sql(
                 "columns": [{"name": name, "type": column_type} for name, column_type in zip(names, types)],
                 "rows": serialized_rows,
                 "returned_rows": len(serialized_rows),
-                "total_rows_available": arrow.num_rows,
-                "truncated": truncated or len(serialized_rows) < arrow.num_rows,
+                "total_rows_available": len(serialized_rows) + (1 if truncated else 0),
+                "truncated": truncated,
             }
     except duckdb.Error as error:
         raise DuckDBExecutionError(str(error)) from error

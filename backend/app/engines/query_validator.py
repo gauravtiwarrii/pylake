@@ -70,10 +70,15 @@ def validate_read_only_sql(sql: str) -> tuple[list[str], list[str]]:
     if isinstance(statement, FORBIDDEN_STATEMENTS) or statement.find(exp.Attach) or statement.find(exp.Detach):
         raise SQLValidationError("This SQL operation is not allowed")
 
+    cte_names = {
+        cte.alias
+        for cte in statement.find_all(exp.CTE)
+        if cte.alias
+    }
     table_names: list[str] = []
     for table in statement.find_all(exp.Table):
         name = table.name
-        if name:
+        if name and name.lower() not in {cte_name.lower() for cte_name in cte_names}:
             table_names.append(name)
         catalog = table.catalog
         db = table.db

@@ -1,7 +1,7 @@
 import signal
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 import socket
 from zoneinfo import ZoneInfo
 
@@ -24,7 +24,7 @@ def handle_shutdown(signum, frame):
 def trigger_due_schedules() -> None:
     db = SessionLocal()
     try:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         schedules = db.query(PipelineSchedule).filter(
             PipelineSchedule.enabled.is_(True),
             PipelineSchedule.next_run_at.is_not(None),
@@ -79,9 +79,9 @@ def main() -> None:
         try:
             heartbeat = db.query(WorkerHeartbeat).filter(WorkerHeartbeat.worker_id == worker_id).first()
             if not heartbeat:
-                heartbeat = WorkerHeartbeat(worker_id=worker_id, last_seen_at=datetime.utcnow(), hostname=socket.gethostname())
+                heartbeat = WorkerHeartbeat(worker_id=worker_id, last_seen_at=datetime.now(timezone.utc).replace(tzinfo=None), hostname=socket.gethostname())
                 db.add(heartbeat)
-            heartbeat.last_seen_at = datetime.utcnow()
+            heartbeat.last_seen_at = datetime.now(timezone.utc).replace(tzinfo=None)
             heartbeat.status = "ONLINE"
             heartbeat.active_job_id = None
             db.commit()

@@ -2,12 +2,11 @@
 
 ## Environment
 
-Host validation was attempted on Windows because Docker and WSL were unavailable at the start.
+Host validation was run on Windows with Docker Desktop and Linux containers enabled.
 
-- Docker Desktop was installed, but the Docker engine could not start.
-- WSL could not be enabled because elevated Windows permissions were unavailable.
-- Native DuckDB and SQLAlchemy DLL loading is blocked by Windows Application Control.
-- PostgreSQL, MinIO, and Docker Compose integration were therefore not executable.
+- Native DuckDB and SQLAlchemy tests pass in the Linux container.
+- PostgreSQL, backend, frontend, and worker services pass core Compose startup.
+- MinIO remains optional because no supported public image endpoint was available in this environment.
 
 The Linux/Docker release command is:
 
@@ -31,20 +30,35 @@ docker compose exec backend python -m app.worker
 - Frontend ESLint: passed.
 - Frontend TypeScript typecheck: passed.
 - Frontend production build: passed.
+- Docker Desktop engine started and responded.
+- Core Compose stack passed: PostgreSQL, backend, frontend, and worker.
+- PostgreSQL migration head verified at `20261125_0007`.
+- Live backend health: `200 OK`.
+- Live frontend login route: `200 OK`.
+- Live worker heartbeat records verified in PostgreSQL.
+- Full Linux backend suite: `37 passed`.
+- Native DuckDB SQL tests passed after Linux integration fixes.
 
 ## Blocked validation
 
 The following checks were not marked passed:
 
 - Backend full suite on this host because native DuckDB/SQLAlchemy imports are blocked.
-- Docker/PostgreSQL/MinIO startup.
-- Real DuckDB SELECT/JOIN/CTE/window integration.
+- MinIO startup and MinIO-specific integration (Docker Hub namespace unavailable; optional Quay profile requires registry access).
+- Complete end-to-end pipeline worker orchestration under multiple workers.
 - End-to-end pipeline worker execution.
 - Multi-worker and stale-job integration.
 - Scheduler restart and missed-occurrence integration.
 - Backup restore of live PostgreSQL and object storage.
 
 ## Reproducible fixes applied
+
+- Added a frontend `public` directory required by the standalone Docker runner.
+- Backend and worker images now copy Alembic and run migrations before application startup.
+- Backend images now install development dependencies and copy tests for container validation.
+- Added an optional MinIO Compose profile so core services are not blocked by registry availability.
+- Fixed DuckDB temporary view registration and bounded result serialization.
+- Added CTE alias exclusion to catalog resolution.
 
 - Pipeline schedule occurrences now have unique database identity.
 - Scheduled missed occurrences are recovered individually.
