@@ -32,6 +32,26 @@ def utcnow():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+class PipelineStepTimeoutError(TimeoutError):
+    pass
+
+
+def run_step_with_timeout(function, timeout_seconds: int):
+    if not hasattr(signal, "setitimer"):
+        return function()
+
+    def timeout_handler(signum, frame):
+        raise PipelineStepTimeoutError("Pipeline step exceeded its execution timeout")
+
+    previous = signal.signal(signal.SIGALRM, timeout_handler)
+    signal.setitimer(signal.ITIMER_REAL, timeout_seconds)
+    try:
+        return function()
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
 def claim_next_job(worker_id: str) -> PipelineRun | None:
     db = SessionLocal()
     try:
@@ -54,14 +74,27 @@ def claim_next_job(worker_id: str) -> PipelineRun | None:
         if not run:
             db.commit()
             return None
-        run.status = RunStatus.RUNNING
-        run.started_at = utcnow()
-        run.claimed_at = utcnow()
-        run.worker_id = worker_id
-        run.max_retries = settings.pipeline_max_retries
+        claimed_at = utcnow()
+        result = db.query(PipelineRun).filter(
+            PipelineRun.id == run.id,
+            PipelineRun.status.in_([RunStatus.QUEUED, RunStatus.RUNNING]),
+        ).update(
+            {
+                PipelineRun.status: RunStatus.RUNNING,
+                PipelineRun.started_at: claimed_at,
+                PipelineRun.claimed_at: claimed_at,
+                PipelineRun.worker_id: worker_id,
+                PipelineRun.max_retries: settings.pipeline_max_retries,
+            },
+            synchronize_session=False,
+        )
+        if result != 1:
+            db.rollback()
+            return None
         db.commit()
-        db.refresh(run)
-        return run
+        db.expire_all()
+        claimed = db.query(PipelineRun).filter(PipelineRun.id == run.id).first()
+        return claimed
     finally:
         db.close()
 
@@ -103,6 +136,11 @@ def execute_pipeline_run(run_id: uuid.UUID) -> None:
                 )
                 db.add(step_run)
                 db.flush()
+            elif step_run.status == StepStatus.RUNNING:
+                step_run.status = StepStatus.PENDING
+                step_run.started_at = None
+                step_run.error_message = None
+                db.flush()
             step_runs[step.step_key] = step_run
         db.commit()
 
@@ -121,6 +159,7 @@ def execute_pipeline_run(run_id: uuid.UUID) -> None:
             step = ready[0]
             processed.add(step.step_key)
             step_run = step_runs[step.step_key]
+            db.refresh(run)
             if step_run.status == StepStatus.SUCCEEDED:
                 continue
             if run.status == RunStatus.CANCELLED:
@@ -145,7 +184,11 @@ def execute_pipeline_run(run_id: uuid.UUID) -> None:
             db.commit()
             started = time.perf_counter()
             try:
-                metadata = execute_step(db, run.workspace_id, run.triggered_by, step)
+                settings = get_settings()
+                metadata = run_step_with_timeout(
+                    lambda: execute_step(db, run.id, run.workspace_id, run.triggered_by, step),
+                    settings.pipeline_step_timeout_seconds,
+                )
                 step_run.status = StepStatus.SUCCEEDED
                 step_run.rows_processed = metadata.get("row_count")
                 step_run.output_metadata_json = metadata
@@ -194,7 +237,7 @@ def execute_pipeline_run(run_id: uuid.UUID) -> None:
         db.close()
 
 
-def execute_step(db, workspace_id: uuid.UUID, user_id: uuid.UUID | None, step: PipelineStep) -> dict:
+def execute_step(db, run_id: uuid.UUID, workspace_id: uuid.UUID, user_id: uuid.UUID | None, step: PipelineStep) -> dict:
     config = step.configuration_json or {}
     storage = get_storage()
 
@@ -299,7 +342,10 @@ def execute_step(db, workspace_id: uuid.UUID, user_id: uuid.UUID | None, step: P
             existing_numbers = {row[0] for row in db.query(DatasetVersion.version_number).filter(DatasetVersion.dataset_id == dataset.id).all()}
             while number in existing_numbers:
                 number += 1
-            key = f"workspaces/{workspace_id}/{target.value.lower()}/{dataset.id}/versions/{number}/data/data.parquet"
+            key = f"workspaces/{workspace_id}/{target.value.lower()}/{dataset.id}/pipeline-runs/{run_id}/steps/{step.id}/data.parquet"
+            existing = db.query(DatasetVersion).filter(DatasetVersion.storage_key == key).first()
+            if existing:
+                return {"row_count": existing.row_count, "version_id": str(existing.id), "layer": existing.layer.value}
             with output.open("rb") as source_file:
                 storage.upload(key, source_file, "application/vnd.apache.parquet")
             size = output.stat().st_size

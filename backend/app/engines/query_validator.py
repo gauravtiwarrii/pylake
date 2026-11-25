@@ -15,6 +15,14 @@ FORBIDDEN_TABLE_FUNCTIONS = {
     "CSV_SCAN",
     "GLOB",
     "HTTPFS",
+    "READ_TEXT",
+    "SQLITE_SCAN",
+    "POSTGRES_SCAN",
+    "MYSQL_SCAN",
+    "DELTA_SCAN",
+    "ICEBERG_SCAN",
+    "EXCEL_SCAN",
+    "ARROW_SCAN",
 }
 
 FORBIDDEN_STATEMENTS = (
@@ -77,7 +85,10 @@ def validate_read_only_sql(sql: str) -> tuple[list[str], list[str]]:
         if name in FORBIDDEN_TABLE_FUNCTIONS:
             raise SQLValidationError("Arbitrary file or network table functions are not allowed")
 
-    forbidden_text = re.compile(r"\b(attach|detach|install|load|copy|read_csv|read_parquet|read_json|httpfs)\b", re.I)
+    forbidden_text = re.compile(
+        r"\b(attach|detach|install|load|copy|read_(?:csv|parquet|json|text|ndjson)|httpfs|sqlite_scan|postgres(?:ql)?_scan|mysql_scan|delta_scan|iceberg_scan|excel_scan|arrow_scan)\b",
+        re.I,
+    )
     if forbidden_text.search(sql):
         raise SQLValidationError("External file access or extension loading is not allowed")
 

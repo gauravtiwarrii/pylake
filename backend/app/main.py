@@ -32,6 +32,10 @@ async def lifespan(_: FastAPI):
             raise RuntimeError("AUTH_SECRET must be configured in production")
         if not settings.cookie_secure:
             raise RuntimeError("COOKIE_SECURE must be true in production")
+        if "*" in settings.cors_origins:
+            raise RuntimeError("CORS_ORIGINS must not contain wildcards in production")
+        if settings.database_url.startswith("sqlite"):
+            raise RuntimeError("SQLite is not the supported production application database")
     Base.metadata.create_all(bind=engine)
     yield
 

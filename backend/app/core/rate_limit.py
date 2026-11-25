@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -12,6 +13,12 @@ def check_database_rate_limit(db: Session, scope_key: str, endpoint: str) -> Non
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
         seconds=settings.auth_rate_limit_window_seconds
     )
+    if db.bind and db.bind.dialect.name == "postgresql":
+        advisory_key = f"{scope_key}:{endpoint}"
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext(:scope_key))"),
+            {"scope_key": advisory_key},
+        )
     db.query(RateLimitEvent).filter(RateLimitEvent.occurred_at < cutoff).delete()
     count = db.query(RateLimitEvent).filter(
         RateLimitEvent.scope_key == scope_key,

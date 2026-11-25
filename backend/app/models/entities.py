@@ -282,9 +282,12 @@ class PipelineStep(Base):
 
 class PipelineRun(Base):
     __tablename__ = "pipeline_runs"
+    __table_args__ = (UniqueConstraint("schedule_id", "scheduled_at", name="uq_pipeline_schedule_occurrence"),)
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
     pipeline_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("pipelines.id", ondelete="CASCADE"), index=True, nullable=False)
+    schedule_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("pipeline_schedules.id", ondelete="SET NULL"), index=True, nullable=True)
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True, nullable=True)
     workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False)
     triggered_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
     status: Mapped[RunStatus] = mapped_column(Enum(RunStatus, name="pipeline_run_status"), default=RunStatus.QUEUED, nullable=False)
