@@ -14,6 +14,7 @@ from app.schemas.workspaces import (
     WorkspaceResponse,
     WorkspaceUpdate,
 )
+from app.core.audit import record_audit
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
@@ -50,6 +51,7 @@ def create_workspace(
     db.add(workspace)
     db.flush()
     db.add(WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role=WorkspaceRole.OWNER))
+    record_audit(db, workspace.id, user.id, "WORKSPACE_CREATED", "workspace", workspace.id)
     db.commit()
     db.refresh(workspace)
     return workspace
@@ -138,6 +140,7 @@ def add_member(
 
     member = WorkspaceMember(workspace_id=workspace_id, user_id=target.id, role=WorkspaceRole(payload.role))
     db.add(member)
+    record_audit(db, workspace_id, user.id, "WORKSPACE_MEMBER_ADDED", "workspace_member", target.id)
     db.commit()
     db.refresh(member)
     return member
@@ -160,6 +163,7 @@ def change_member_role(
     if payload.role == "OWNER":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ownership cannot be assigned")
     target.role = WorkspaceRole(payload.role)
+    record_audit(db, workspace_id, user.id, "WORKSPACE_MEMBER_ROLE_CHANGED", "workspace_member", target.id, {"role": payload.role})
     db.commit()
     db.refresh(target)
     return target
@@ -179,4 +183,5 @@ def remove_member(
     if target.role == WorkspaceRole.OWNER:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="The workspace owner cannot be removed")
     db.delete(target)
+    record_audit(db, workspace_id, user.id, "WORKSPACE_MEMBER_REMOVED", "workspace_member", target.id)
     db.commit()

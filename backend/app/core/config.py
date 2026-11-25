@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     sql_max_result_bytes: int = 10 * 1024 * 1024
     pipeline_job_claim_seconds: int = 300
     pipeline_worker_poll_seconds: int = 2
+    log_level: str = "INFO"
+    auth_rate_limit_attempts: int = 5
+    auth_rate_limit_window_seconds: int = 900
+    pipeline_step_timeout_seconds: int = 300
+    pipeline_max_retries: int = 3
+    worker_stale_seconds: int = 90
     auth_secret: str = "change-this-secret-before-production"
     auth_cookie_name: str = "pylake_session"
     csrf_cookie_name: str = "pylake_csrf"

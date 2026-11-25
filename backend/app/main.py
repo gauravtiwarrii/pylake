@@ -1,4 +1,7 @@
 from contextlib import asynccontextmanager
+import time
+import uuid
+import logging
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -12,15 +15,23 @@ from app.api.v1.datasets import router as datasets_router
 from app.api.v1.lakehouse import router as lakehouse_router
 from app.api.v1.sql import router as sql_router
 from app.api.v1.pipelines import router as pipelines_router
+from app.api.v1.observability import router as observability_router
 from app.core.config import get_settings
 from app.core.db import Base, engine
 from app.core.security import sha256
 from app.models import entities  # noqa: F401
+from app.core.observability import configure_logging, request_id_ctx
 
 settings = get_settings()
+configure_logging(settings.log_level)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    if settings.app_env.lower() == "production":
+        if settings.auth_secret == "change-this-secret-before-production":
+            raise RuntimeError("AUTH_SECRET must be configured in production")
+        if not settings.cookie_secure:
+            raise RuntimeError("COOKIE_SECURE must be true in production")
     Base.metadata.create_all(bind=engine)
     yield
 
@@ -32,6 +43,24 @@ app = FastAPI(
     openapi_url="/openapi.json",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def request_observability(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request_id_ctx.set(request_id)
+    started = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    response.headers["X-Request-ID"] = request_id
+    logging.getLogger("pylake.http").info(
+        "method=%s path=%s status=%s duration_ms=%s",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration_ms,
+    )
+    return response
 
 app.add_middleware(
     CORSMiddleware,
@@ -47,6 +76,7 @@ app.include_router(workspaces_router, prefix=settings.api_v1_prefix)
 app.include_router(datasets_router, prefix=settings.api_v1_prefix)
 app.include_router(lakehouse_router, prefix=settings.api_v1_prefix)
 app.include_router(sql_router, prefix=settings.api_v1_prefix)
+app.include_router(observability_router, prefix=settings.api_v1_prefix)
 app.include_router(pipelines_router, prefix=settings.api_v1_prefix)
 
 

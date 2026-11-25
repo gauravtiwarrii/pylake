@@ -15,6 +15,7 @@ from app.models.entities import Dataset, DatasetStatus, User, WorkspaceRole
 from app.schemas.datasets import DatasetListResponse, DatasetResponse, PreviewResponse
 from app.services.ingestion import detect_format, inspect_file, preview_file, sanitize_filename
 from app.storage.factory import get_storage
+from app.core.audit import record_audit
 from app.services.lakehouse import ensure_bronze_version
 
 router = APIRouter(prefix="/workspaces", tags=["datasets"])
@@ -98,6 +99,8 @@ def upload_dataset(
     db.flush()
     dataset.storage_key = f"workspaces/{workspace_id}/datasets/{dataset.id}/{filename}"
     db.commit()
+    record_audit(db, workspace_id, user.id, "DATASET_UPLOADED", "dataset", dataset.id)
+    db.commit()
     db.refresh(dataset)
 
     storage = get_storage()
@@ -131,6 +134,7 @@ def upload_dataset(
         db.commit()
         if storage.exists(dataset.storage_key):
             storage.delete(dataset.storage_key)
+        record_audit(db, workspace_id, user.id, "DATASET_DELETED", "dataset", dataset.id)
     finally:
         if temp_dir:
             temp_dir.cleanup()

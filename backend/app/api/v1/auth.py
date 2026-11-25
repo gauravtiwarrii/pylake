@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_current_user
 from app.core.db import get_db
 from app.core.config import get_settings
+from app.core.audit import record_audit
+from app.core.rate_limit import check_database_rate_limit
 from app.core.security import (
     create_csrf_token,
     create_session_token,
@@ -38,9 +40,11 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> User:
 
 
 @router.post("/login", response_model=UserResponse)
-def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)) -> User:
+def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)) -> User:
     settings = get_settings()
     email = payload.email.lower()
+    scope_key = request.client.host if request.client else "unknown"
+    check_database_rate_limit(db, scope_key, "auth_login")
     user = db.query(User).filter(func.lower(User.email) == email, User.is_active.is_(True)).first()
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")

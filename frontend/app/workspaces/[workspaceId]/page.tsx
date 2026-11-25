@@ -123,6 +123,12 @@ export default function WorkspaceDetailPage({
         >
           Open Pipelines
         </a>
+        <a
+          href={`/workspaces/${workspaceId}/audit`}
+          className="ml-3 mt-5 inline-flex h-10 items-center rounded-md border border-[#303646] px-4 text-sm"
+        >
+          Open Audit Log
+        </a>
 
         {error && (
           <div className="mt-6 rounded-md border border-red-900 bg-red-950/40 px-4 py-3 text-sm text-red-300">

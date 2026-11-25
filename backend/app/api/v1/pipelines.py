@@ -28,6 +28,8 @@ from app.schemas.pipelines import (
     ScheduleUpdate,
 )
 from app.services.pipeline_graph import PipelineGraphError, validate_pipeline_graph
+from app.models.entities import AuditLog, WorkerHeartbeat, PipelineStepRun
+from app.core.audit import record_audit
 
 router = APIRouter(prefix="/workspaces", tags=["pipelines"])
 
@@ -75,6 +77,7 @@ def create_pipeline(payload: PipelineCreate, workspace_id: UUID, db: Session = D
     db.add(pipeline)
     db.flush()
     replace_steps(db, pipeline, payload.steps)
+    record_audit(db, workspace_id, user.id, "PIPELINE_CREATED", "pipeline", pipeline.id)
     db.commit()
     db.refresh(pipeline)
     return pipeline
@@ -114,6 +117,7 @@ def update_pipeline(workspace_id: UUID, pipeline_id: UUID, payload: PipelineUpda
         except PipelineGraphError as error:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error))
         replace_steps(db, pipeline, payload.steps)
+    record_audit(db, workspace_id, user.id, "PIPELINE_UPDATED", "pipeline", pipeline.id)
     db.commit()
     db.refresh(pipeline)
     return pipeline
@@ -123,6 +127,7 @@ def update_pipeline(workspace_id: UUID, pipeline_id: UUID, payload: PipelineUpda
 def delete_pipeline(workspace_id: UUID, pipeline_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     require_role(db, workspace_id, user, WorkspaceRole.ADMIN)
     pipeline = scoped_pipeline(db, workspace_id, pipeline_id)
+    record_audit(db, workspace_id, user.id, "PIPELINE_DELETED", "pipeline", pipeline.id)
     db.delete(pipeline)
     db.commit()
 
@@ -152,6 +157,7 @@ def create_run(workspace_id: UUID, pipeline_id: UUID, db: Session = Depends(get_
     pipeline = scoped_pipeline(db, workspace_id, pipeline_id)
     run = PipelineRun(pipeline_id=pipeline.id, workspace_id=workspace_id, triggered_by=user.id, status=RunStatus.QUEUED)
     db.add(run)
+    record_audit(db, workspace_id, user.id, "PIPELINE_EXECUTION_STARTED", "pipeline_run", run.id)
     db.commit()
     db.refresh(run)
     return run
@@ -193,6 +199,7 @@ def cancel_run(workspace_id: UUID, run_id: UUID, db: Session = Depends(get_db), 
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only active runs can be cancelled")
     run.status = RunStatus.CANCELLED
     run.completed_at = datetime.utcnow()
+    record_audit(db, workspace_id, user.id, "PIPELINE_CANCELLED", "pipeline_run", run.id)
     db.commit()
     return run
 
@@ -222,6 +229,7 @@ def create_schedule(workspace_id: UUID, pipeline_id: UUID, payload: ScheduleCrea
         next_run_at=next_run.replace(tzinfo=None),
     )
     db.add(schedule)
+    record_audit(db, workspace_id, user.id, "PIPELINE_SCHEDULE_CREATED", "schedule", schedule.id)
     db.commit()
     db.refresh(schedule)
     return schedule
@@ -253,6 +261,7 @@ def update_schedule(workspace_id: UUID, schedule_id: UUID, payload: ScheduleUpda
     if payload.enabled is not None:
         schedule.enabled = payload.enabled
     schedule.next_run_at = next_schedule(schedule.cron_expression, schedule.timezone).replace(tzinfo=None)
+    record_audit(db, workspace_id, user.id, "PIPELINE_SCHEDULE_UPDATED", "schedule", schedule.id)
     db.commit()
     db.refresh(schedule)
     return schedule
@@ -264,5 +273,90 @@ def delete_schedule(workspace_id: UUID, schedule_id: UUID, db: Session = Depends
     schedule = db.query(PipelineSchedule).filter(PipelineSchedule.id == schedule_id, PipelineSchedule.workspace_id == workspace_id).first()
     if not schedule:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Schedule not found")
+    record_audit(db, workspace_id, user.id, "PIPELINE_SCHEDULE_DELETED", "schedule", schedule.id)
     db.delete(schedule)
     db.commit()
+
+
+@router.get("/{workspace_id}/pipelines/metrics")
+def pipeline_metrics(workspace_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    membership(db, workspace_id, user.id)
+    runs = db.query(PipelineRun).filter(PipelineRun.workspace_id == workspace_id).all()
+    statuses = {
+        "QUEUED": 0,
+        "RUNNING": 0,
+        "SUCCEEDED": 0,
+        "FAILED": 0,
+        "CANCELLED": 0,
+    }
+    durations = []
+    for run in runs:
+        statuses[run.status.value] = statuses.get(run.status.value, 0) + 1
+        if run.duration_ms is not None:
+            durations.append(run.duration_ms)
+    step_rows = db.query(PipelineStepRun).join(PipelineRun).filter(PipelineRun.workspace_id == workspace_id).all()
+    step_durations = [row.duration_ms for row in step_rows if row.duration_ms is not None]
+    return {
+        "total_runs": len(runs),
+        "status_distribution": statuses,
+        "average_duration_ms": int(sum(durations) / len(durations)) if durations else 0,
+        "total_duration_ms": sum(durations),
+        "average_step_duration_ms": int(sum(step_durations) / len(step_durations)) if step_durations else 0,
+        "retry_count": sum(run.retry_count for run in runs),
+        "last_successful_run": max((run.completed_at for run in runs if run.status == RunStatus.SUCCEEDED), default=None),
+        "last_failed_run": max((run.completed_at for run in runs if run.status == RunStatus.FAILED), default=None),
+    }
+
+
+@router.get("/{workspace_id}/workers/health")
+def worker_health(workspace_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    require_role(db, workspace_id, user, WorkspaceRole.ADMIN)
+    from app.core.config import get_settings
+    from datetime import timedelta, datetime, timezone
+    settings = get_settings()
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=settings.worker_stale_seconds)
+    workers = db.query(WorkerHeartbeat).order_by(WorkerHeartbeat.last_seen_at.desc()).all()
+    return {
+        "workers": [
+            {
+                "worker_id": worker.worker_id,
+                "last_seen_at": worker.last_seen_at,
+                "status": "STALE" if worker.last_seen_at < cutoff else worker.status,
+                "active_job_id": worker.active_job_id,
+            }
+            for worker in workers
+        ]
+    }
+
+
+@router.get("/{workspace_id}/audit")
+def audit_logs(
+    workspace_id: UUID,
+    page: int = 1,
+    page_size: int = 25,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    require_role(db, workspace_id, user, WorkspaceRole.ADMIN)
+    page = max(1, page)
+    page_size = min(100, max(1, page_size))
+    query = db.query(AuditLog).filter(AuditLog.workspace_id == workspace_id)
+    total = query.count()
+    items = query.order_by(AuditLog.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return {
+        "items": [
+            {
+                "id": str(item.id),
+                "actor_id": str(item.actor_id) if item.actor_id else None,
+                "action": item.action,
+                "target_type": item.target_type,
+                "target_id": item.target_id,
+                "metadata": item.metadata_json,
+                "created_at": item.created_at,
+            }
+            for item in items
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }

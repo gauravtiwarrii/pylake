@@ -39,7 +39,7 @@ def claim_next_job(worker_id: str) -> PipelineRun | None:
         stale_before = utcnow() - timedelta(seconds=settings.pipeline_job_claim_seconds)
         run = db.query(PipelineRun).filter(
             PipelineRun.status == RunStatus.QUEUED,
-        ).order_by(PipelineRun.created_at.asc()).first()
+        ).with_for_update(skip_locked=True).order_by(PipelineRun.created_at.asc()).first()
         if not run:
             run = db.query(PipelineRun).filter(
                 PipelineRun.status == RunStatus.RUNNING,
@@ -58,6 +58,7 @@ def claim_next_job(worker_id: str) -> PipelineRun | None:
         run.started_at = utcnow()
         run.claimed_at = utcnow()
         run.worker_id = worker_id
+        run.max_retries = settings.pipeline_max_retries
         db.commit()
         db.refresh(run)
         return run
@@ -120,6 +121,14 @@ def execute_pipeline_run(run_id: uuid.UUID) -> None:
             step = ready[0]
             processed.add(step.step_key)
             step_run = step_runs[step.step_key]
+            if step_run.status == StepStatus.SUCCEEDED:
+                continue
+            if run.status == RunStatus.CANCELLED:
+                step_run.status = StepStatus.SKIPPED
+                step_run.error_message = "Run cancelled"
+                step_run.completed_at = utcnow()
+                db.commit()
+                continue
             dependency_failed = any(
                 step_runs[dependency].status in {StepStatus.FAILED, StepStatus.SKIPPED}
                 for dependency in (step.dependencies_json or [])
@@ -151,8 +160,30 @@ def execute_pipeline_run(run_id: uuid.UUID) -> None:
                 db.commit()
 
         if execution_failed:
-            run.status = RunStatus.FAILED
-            run.error_message = "One or more pipeline steps failed"
+            settings = get_settings()
+            if run.retry_count < run.max_retries:
+                run.retry_count += 1
+                run.status = RunStatus.QUEUED
+                run.failure_class = "STEP_FAILURE"
+                run.error_message = "Retry scheduled after step failure"
+                run.started_at = None
+                run.completed_at = None
+                run.claimed_at = None
+                run.worker_id = None
+                for step in steps:
+                    step_run = step_runs[step.step_key]
+                    if step_run.status == StepStatus.FAILED:
+                        step_run.status = StepStatus.PENDING
+                        step_run.started_at = None
+                        step_run.completed_at = None
+                        step_run.error_message = None
+                    if step_run.status == StepStatus.SKIPPED:
+                        step_run.status = StepStatus.PENDING
+                run.duration_ms = None
+            else:
+                run.status = RunStatus.FAILED
+                run.failure_class = "STEP_FAILURE"
+                run.error_message = "One or more pipeline steps failed after retry limit"
         else:
             run.status = RunStatus.SUCCEEDED
             run.error_message = None

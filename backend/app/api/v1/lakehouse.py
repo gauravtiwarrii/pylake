@@ -39,6 +39,7 @@ from app.services.lakehouse import (
     write_parquet,
 )
 from app.storage.factory import get_storage
+from app.core.audit import record_audit
 
 router = APIRouter(prefix="/workspaces", tags=["lakehouse"])
 
@@ -221,6 +222,7 @@ def promote_table(
             checksum=checksum,
         ))
         table.current_layer = target
+        record_audit(db, workspace_id, user.id, "DATASET_VERSION_PROMOTED", "dataset_version", version.id, {"target_layer": target.value})
         db.commit()
         db.refresh(version)
         output_dir.cleanup()
@@ -391,6 +393,7 @@ def transform_table(
             checksum=checksum,
         ))
         table.current_layer = target
+        record_audit(db, workspace_id, user.id, "DATASET_TRANSFORMED", "dataset_version", version.id, {"target_layer": target.value})
         db.commit()
         db.refresh(version)
         output_dir.cleanup()

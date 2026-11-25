@@ -2,13 +2,14 @@ import signal
 import time
 import uuid
 from datetime import datetime
+import socket
 from zoneinfo import ZoneInfo
 
 from croniter import croniter
 
 from app.core.config import get_settings
 from app.core.db import SessionLocal
-from app.models.entities import PipelineRun, PipelineSchedule, RunStatus
+from app.models.entities import PipelineRun, PipelineSchedule, RunStatus, WorkerHeartbeat
 from app.services.pipeline_engine import claim_next_job, execute_pipeline_run
 
 running = True
@@ -61,6 +62,17 @@ def main() -> None:
     worker_id = f"pylake-worker-{uuid.uuid4()}"
     while running:
         trigger_due_schedules()
+        db = SessionLocal()
+        try:
+            heartbeat = db.query(WorkerHeartbeat).filter(WorkerHeartbeat.worker_id == worker_id).first()
+            if not heartbeat:
+                heartbeat = WorkerHeartbeat(worker_id=worker_id, last_seen_at=datetime.utcnow(), hostname=socket.gethostname())
+                db.add(heartbeat)
+            heartbeat.last_seen_at = datetime.utcnow()
+            heartbeat.status = "ONLINE"
+            db.commit()
+        finally:
+            db.close()
         run = claim_next_job(worker_id)
         if run:
             execute_pipeline_run(run.id)

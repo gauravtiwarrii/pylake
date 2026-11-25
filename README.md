@@ -260,6 +260,34 @@ docker compose up --build worker
 
 The API and worker share the PostgreSQL database. Scheduled runs use standard cron expressions and explicit IANA timezones.
 
+## Milestone 7 observability and hardening
+
+PyLake emits structured JSON logs with request IDs and logs only redacted operational context. Sensitive field names and bearer credentials are redacted.
+
+Worker health is persisted in `worker_heartbeats`. Pipeline runs include retry counts, maximum retries, and failure classes. Stale workers and stale running jobs are detected through heartbeat and claim timestamps.
+
+### Observability APIs
+
+- `GET /api/v1/workspaces/{workspace_id}/pipelines/metrics`
+- `GET /api/v1/workspaces/{workspace_id}/workers/health`
+- `GET /api/v1/workspaces/{workspace_id}/audit?page=1&page_size=25`
+
+Audit APIs require workspace ADMIN or OWNER access. Audit records contain actor, action, target, safe metadata and UTC timestamp.
+
+Authentication login attempts use database-backed rate-limit events, allowing protection to work across API processes when PostgreSQL is used.
+
+### Hardening variables
+
+- `LOG_LEVEL`
+- `AUTH_RATE_LIMIT_ATTEMPTS`
+- `AUTH_RATE_LIMIT_WINDOW_SECONDS`
+- `PIPELINE_STEP_TIMEOUT_SECONDS`
+- `PIPELINE_MAX_RETRIES`
+- `WORKER_STALE_SECONDS`
+- `PIPELINE_JOB_CLAIM_SECONDS`
+
+Backup and restore procedures are documented in [docs/BACKUP_RESTORE.md](docs/BACKUP_RESTORE.md).
+
 Frontend:
 
 ```powershell

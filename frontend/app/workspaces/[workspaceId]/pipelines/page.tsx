@@ -23,6 +23,7 @@ export default function PipelinesPage({ params }: { params: Promise<{ workspaceI
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [metrics, setMetrics] = useState<Record<string, unknown> | null>(null);
   const [stepType, setStepType] = useState<"SOURCE_DATASET" | "TRANSFORM" | "DATA_QUALITY" | "SQL_QUERY" | "MATERIALIZE">("SOURCE_DATASET");
   const [stepName, setStepName] = useState("");
   const [stepConfig, setStepConfig] = useState("{}");
@@ -65,9 +66,13 @@ export default function PipelinesPage({ params }: { params: Promise<{ workspaceI
   };
 
   const load = useCallback(async () => {
-    const response = await api<Pipeline[]>(`/api/v1/workspaces/${workspaceId}/pipelines`);
+    const [response, metricsResponse] = await Promise.all([
+      api<Pipeline[]>(`/api/v1/workspaces/${workspaceId}/pipelines`),
+      api<Record<string, unknown>>(`/api/v1/workspaces/${workspaceId}/pipelines/metrics`),
+    ]);
     if (response.error) setError(response.error);
     else setPipelines(response.data ?? []);
+    if (!metricsResponse.error) setMetrics(metricsResponse.data ?? null);
   }, [workspaceId]);
 
   useEffect(() => {
@@ -131,6 +136,23 @@ export default function PipelinesPage({ params }: { params: Promise<{ workspaceI
           <button onClick={() => setCreateOpen(true)} className="h-10 rounded-md bg-[#7dd3fc] px-4 text-sm font-medium text-[#071018]">Create pipeline</button>
         </div>
         {error && <div className="mt-5 rounded-md border border-red-900 bg-red-950/40 px-4 py-3 text-sm text-red-300">{error}</div>}
+
+        {metrics && (
+          <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-5">
+            {([
+              ["Total runs", metrics.total_runs],
+              ["Succeeded", (metrics.status_distribution as Record<string, number>)?.SUCCEEDED ?? 0],
+              ["Failed", (metrics.status_distribution as Record<string, number>)?.FAILED ?? 0],
+              ["Running", (metrics.status_distribution as Record<string, number>)?.RUNNING ?? 0],
+              ["Average ms", metrics.average_duration_ms],
+            ] as [string, unknown][]).map(([label, value]) => (
+              <div key={String(label)} className="rounded-md border border-[#242936] bg-[#11141b] p-3">
+                <p className="text-xs text-[#98a0b3]">{label}</p>
+                <p className="mt-1 font-medium">{String(value ?? 0)}</p>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
           <section className="space-y-3">
