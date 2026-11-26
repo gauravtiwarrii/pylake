@@ -35,4 +35,4 @@ def create_csrf_token() -> str:
 
 def session_expiry() -> datetime:
     settings = get_settings()
-    return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=settings.session_ttl_hours)
+    return datetime.now(timezone.utc) + timedelta(hours=settings.session_ttl_hours)

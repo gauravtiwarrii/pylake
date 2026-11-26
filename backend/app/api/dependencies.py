@@ -19,7 +19,14 @@ def get_current_user(
     session = db.query(AuthSession).filter(
         AuthSession.token_hash == sha256(token),
     ).first()
-    if not session or session.expires_at <= datetime.now(timezone.utc).replace(tzinfo=None):
+    if not session:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    expires_at = session.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    else:
+        expires_at = expires_at.astimezone(timezone.utc)
+    if expires_at <= datetime.now(timezone.utc):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
         csrf_header = request.headers.get("X-CSRF-Token")

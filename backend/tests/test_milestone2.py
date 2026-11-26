@@ -1,5 +1,6 @@
 import tempfile
 from pathlib import Path
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.db import Base, get_db
 from app.main import app
+from app.core.security import session_expiry
 
 
 @pytest.fixture()
@@ -72,6 +74,11 @@ def test_registration_duplicate_and_login_logout(client: TestClient):
     logout = client.post("/api/v1/auth/logout", headers=csrf_headers(client))
     assert logout.status_code == 204
     assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_session_expiration_supports_timezone_aware_postgres_values(client: TestClient):
+    expires_at = session_expiry()
+    assert expires_at.tzinfo is not None
 
 
 def test_cross_user_access_and_workspace_ownership(client: TestClient):
