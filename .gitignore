@@ -10,7 +10,9 @@ __pycache__/
 root.env
 *.db
 *.sqlite*
-storage/
+# Root-level data directory only; do NOT ignore backend/app/storage (source package)
+/storage/
+/backend/storage/
 dist/
 coverage/
 *.tsbuildinfo

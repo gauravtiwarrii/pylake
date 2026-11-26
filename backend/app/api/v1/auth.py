@@ -88,8 +88,9 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db), 
         if session:
             db.delete(session)
             db.commit()
-    response.delete_cookie("pylake_session", path="/")
-    response.delete_cookie("pylake_csrf", path="/")
+    settings = get_settings()
+    response.delete_cookie("pylake_session", path="/", secure=settings.cookie_secure, httponly=True, samesite="lax")
+    response.delete_cookie("pylake_csrf", path="/", secure=settings.cookie_secure, samesite="lax")
 
 
 @router.get("/me", response_model=UserResponse)

@@ -56,7 +56,17 @@ async def request_observability(request: Request, call_next):
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
     request_id_ctx.set(request_id)
     started = time.perf_counter()
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception:
+        # Log full details server-side only; never return internals to the browser.
+        logging.getLogger("pylake.http").exception(
+            "unhandled_error method=%s path=%s", request.method, request.url.path
+        )
+        response = JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error", "request_id": request_id},
+        )
     duration_ms = int((time.perf_counter() - started) * 1000)
     response.headers["X-Request-ID"] = request_id
     logging.getLogger("pylake.http").info(
