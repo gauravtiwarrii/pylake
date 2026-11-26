@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowRight, ArrowUpRight, Github, Menu, X } from "lucide-react";
+import { PyLakeIcon, PyLakeLogo } from "@/components/pylake-brand";
 import styles from "./public-landing.module.css";
 
 const repositoryUrl = "https://github.com/gauravtiwarrii/pylake";
@@ -11,62 +12,62 @@ const documentationUrl = `${repositoryUrl}#readme`;
 const navigation: { label: string; href: string; external?: boolean }[] = [
   { label: "Platform", href: "#platform" },
   { label: "Features", href: "#features" },
-  { label: "Architecture", href: "#architecture" },
   { label: "Documentation", href: documentationUrl, external: true },
+  { label: "About", href: "#about" },
 ];
 
 const capabilities = [
   {
     number: "01",
-    title: "Bring data in",
+    title: "Data Engineering",
     description:
-      "Land CSV, JSON, NDJSON, Parquet, and XLSX datasets in a workspace built for the next step.",
-    label: "INGESTION",
+      "Ingest CSV, JSON, NDJSON, Parquet, and XLSX datasets, then follow each source through its lifecycle.",
+    label: "INGEST · TRACE · SHAPE",
   },
   {
     number: "02",
-    title: "Shape it with context",
+    title: "Lakehouse Architecture",
     description:
-      "Promote and transform immutable lakehouse versions, with schema and quality details alongside the data.",
-    label: "LAKEHOUSE",
+      "Keep immutable Bronze, Silver, and Gold versions connected with schema, quality, and lineage details.",
+    label: "BRONZE · SILVER · GOLD",
   },
   {
     number: "03",
-    title: "Ask better questions",
+    title: "SQL Analytics",
     description:
       "Explore Silver and Gold tables with guarded, read-only SQL powered by DuckDB.",
-    label: "SQL ANALYTICS",
+    label: "DUCKDB · SQLGLOT",
   },
   {
     number: "04",
-    title: "Make the work repeatable",
+    title: "Workflow Orchestration",
     description:
-      "Build dependency-aware pipelines from source, transform, quality, SQL, and materialization steps.",
-    label: "ORCHESTRATION",
+      "Compose dependency-aware pipeline steps, schedule runs, and inspect run logs and status.",
+    label: "PIPELINES · SCHEDULES",
   },
   {
     number: "05",
-    title: "Know what changed",
+    title: "AI Everywhere",
     description:
-      "Follow recorded versions and lineage, and inspect null counts, duplicates, and schema details.",
-    label: "QUALITY & LINEAGE",
+      "Optional workspace-aware AI assists with dataset analysis and SQL, transformation, and pipeline drafts. Suggestions are validated, never auto-run.",
+    label: "OPTIONAL AI COPILOT",
   },
   {
     number: "06",
-    title: "Keep operations visible",
+    title: "Data Quality & Governance",
     description:
-      "Review pipeline run metrics, worker health, and workspace-scoped audit activity.",
-    label: "OBSERVABILITY",
+      "Inspect schemas, nulls, duplicates, version history, lineage, and workspace-scoped audit activity.",
+    label: "QUALITY · LINEAGE · AUDIT",
   },
 ];
 
 const architecture = [
-  { number: "01", title: "Sources", detail: "CSV · JSON · Parquet · XLSX" },
-  { number: "02", title: "Ingestion", detail: "FastAPI" },
-  { number: "03", title: "Storage", detail: "PostgreSQL · MinIO · local" },
-  { number: "04", title: "Processing", detail: "Polars · DuckDB" },
-  { number: "05", title: "SQL", detail: "SQLGlot · DuckDB" },
-  { number: "06", title: "Analytics", detail: "Workspace explorer" },
+  { number: "01", title: "Ingest", detail: "CSV · JSON · Parquet · XLSX" },
+  { number: "02", title: "Version", detail: "Bronze · Silver · Gold" },
+  { number: "03", title: "Transform", detail: "Polars · DuckDB" },
+  { number: "04", title: "Orchestrate", detail: "Dependency-aware pipelines" },
+  { number: "05", title: "Analyze", detail: "Guarded, read-only SQL" },
+  { number: "06", title: "Assist", detail: "Optional AI Copilot" },
 ];
 
 function EcosystemArtwork() {
@@ -86,19 +87,19 @@ function EcosystemArtwork() {
         </desc>
         <defs>
           <radialGradient id="core-light">
-            <stop offset="0" stopColor="#e4c990" stopOpacity=".2" />
-            <stop offset=".58" stopColor="#c9ad78" stopOpacity=".06" />
-            <stop offset="1" stopColor="#c9ad78" stopOpacity="0" />
+            <stop offset="0" stopColor="#12C8ED" stopOpacity=".22" />
+            <stop offset=".52" stopColor="#168BFF" stopOpacity=".08" />
+            <stop offset="1" stopColor="#773BFF" stopOpacity="0" />
           </radialGradient>
-          <linearGradient id="flow-gold" x1="0" x2="1" y1="0" y2="1">
-            <stop offset="0" stopColor="#a77c49" stopOpacity=".16" />
-            <stop offset=".52" stopColor="#d8bd87" stopOpacity=".88" />
-            <stop offset="1" stopColor="#d8bd87" stopOpacity=".12" />
+          <linearGradient id="flow-blue" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0" stopColor="#12C8ED" stopOpacity=".16" />
+            <stop offset=".52" stopColor="#168BFF" stopOpacity=".88" />
+            <stop offset="1" stopColor="#773BFF" stopOpacity=".12" />
           </linearGradient>
-          <linearGradient id="flow-silver" x1="1" x2="0" y1="0" y2="1">
-            <stop offset="0" stopColor="#b9c3c0" stopOpacity=".1" />
-            <stop offset=".55" stopColor="#b9c3c0" stopOpacity=".76" />
-            <stop offset="1" stopColor="#b9c3c0" stopOpacity=".08" />
+          <linearGradient id="flow-violet" x1="1" x2="0" y1="0" y2="1">
+            <stop offset="0" stopColor="#773BFF" stopOpacity=".1" />
+            <stop offset=".55" stopColor="#12C8ED" stopOpacity=".76" />
+            <stop offset="1" stopColor="#168BFF" stopOpacity=".08" />
           </linearGradient>
           <filter id="soft-glow" x="-80%" y="-80%" width="260%" height="260%">
             <feGaussianBlur stdDeviation="9" />
@@ -111,7 +112,7 @@ function EcosystemArtwork() {
           cy="304"
           r="207"
           fill="none"
-          stroke="#c9ad78"
+          stroke="#168BFF"
           strokeOpacity=".13"
         />
         <circle
@@ -130,7 +131,7 @@ function EcosystemArtwork() {
           ry="112"
           transform="rotate(-28 370 304)"
           fill="none"
-          stroke="url(#flow-gold)"
+          stroke="url(#flow-blue)"
           strokeWidth="1.2"
         />
         <ellipse
@@ -140,44 +141,44 @@ function EcosystemArtwork() {
           ry="92"
           transform="rotate(32 370 304)"
           fill="none"
-          stroke="url(#flow-silver)"
+          stroke="url(#flow-violet)"
           strokeWidth="1"
         />
         <path
           d="M92 380C178 342 208 186 329 167c116-18 169 89 285 34"
           fill="none"
-          stroke="#b88c57"
+          stroke="#773BFF"
           strokeOpacity=".54"
           strokeWidth="1"
         />
         <path
           d="M130 221c84 88 125 218 250 235 96 14 150-83 235-87"
           fill="none"
-          stroke="#b9c3c0"
+          stroke="#12C8ED"
           strokeOpacity=".38"
           strokeWidth="1"
         />
         <path
           d="M172 130c112 53 131 156 217 174s119-79 197-115"
           fill="none"
-          stroke="#d7bd88"
+          stroke="#168BFF"
           strokeOpacity=".32"
           strokeWidth="1"
         />
-        <circle cx="370" cy="304" r="83" fill="#111310" stroke="#c9ad78" strokeOpacity=".45" />
-        <circle cx="370" cy="304" r="68" fill="none" stroke="#e2d5b9" strokeOpacity=".12" />
-        <circle cx="370" cy="304" r="91" fill="#d8bd87" fillOpacity=".08" filter="url(#soft-glow)" />
+        <circle cx="370" cy="304" r="83" fill="#0B0B12" stroke="#168BFF" strokeOpacity=".45" />
+        <circle cx="370" cy="304" r="68" fill="none" stroke="#A1A1AA" strokeOpacity=".12" />
+        <circle cx="370" cy="304" r="91" fill="#168BFF" fillOpacity=".08" filter="url(#soft-glow)" />
         <path
           d="M338 306l32-19 32 19-32 19-32-19Z"
           fill="none"
-          stroke="#d8bd87"
+          stroke="#12C8ED"
           strokeOpacity=".84"
           strokeWidth="1.2"
         />
         <path
           d="M338 306v18l32 19 32-19v-18M370 325v18"
           fill="none"
-          stroke="#d8bd87"
+          stroke="#773BFF"
           strokeOpacity=".52"
           strokeWidth="1.1"
         />
@@ -185,7 +186,7 @@ function EcosystemArtwork() {
           x="370"
           y="374"
           textAnchor="middle"
-          fill="#aaa79d"
+          fill="#A1A1AA"
           fontSize="9"
           letterSpacing="3"
         >
@@ -193,24 +194,24 @@ function EcosystemArtwork() {
         </text>
 
         <g className={styles.orbit}>
-          <circle cx="155" cy="186" r="22" fill="#171713" stroke="#b88c57" strokeOpacity=".68" />
-          <circle cx="155" cy="186" r="4" fill="#c59b67" />
+          <circle cx="155" cy="186" r="22" fill="#0B0B12" stroke="#773BFF" strokeOpacity=".68" />
+          <circle cx="155" cy="186" r="4" fill="#773BFF" />
         </g>
         <g>
-          <circle cx="574" cy="204" r="18" fill="#151716" stroke="#b9c3c0" strokeOpacity=".76" />
-          <circle cx="574" cy="204" r="3.5" fill="#c3cbc8" />
+          <circle cx="574" cy="204" r="18" fill="#0B0B12" stroke="#12C8ED" strokeOpacity=".76" />
+          <circle cx="574" cy="204" r="3.5" fill="#12C8ED" />
         </g>
         <g>
-          <circle cx="552" cy="453" r="24" fill="#171611" stroke="#d8bd87" strokeOpacity=".72" />
-          <circle cx="552" cy="453" r="4" fill="#d8bd87" />
+          <circle cx="552" cy="453" r="24" fill="#0B0B12" stroke="#168BFF" strokeOpacity=".72" />
+          <circle cx="552" cy="453" r="4" fill="#168BFF" />
         </g>
-        <circle cx="262" cy="104" r="2" fill="#d8bd87" />
-        <circle cx="481" cy="115" r="1.6" fill="#b9c3c0" />
-        <circle cx="116" cy="300" r="1.8" fill="#d8bd87" />
-        <circle cx="620" cy="347" r="1.8" fill="#b9c3c0" />
-        <circle cx="290" cy="508" r="1.6" fill="#d8bd87" />
+        <circle cx="262" cy="104" r="2" fill="#12C8ED" />
+        <circle cx="481" cy="115" r="1.6" fill="#773BFF" />
+        <circle cx="116" cy="300" r="1.8" fill="#168BFF" />
+        <circle cx="620" cy="347" r="1.8" fill="#12C8ED" />
+        <circle cx="290" cy="508" r="1.6" fill="#773BFF" />
 
-        <g fill="#b7b2a7" fontSize="10" letterSpacing="1.5">
+        <g fill="#A1A1AA" fontSize="10" letterSpacing="1.5">
           <text x="114" y="150">BRONZE</text>
           <text x="596" y="201">SILVER</text>
           <text x="580" y="469">GOLD</text>
@@ -265,10 +266,7 @@ export default function PublicLanding() {
       <header className={styles.header}>
         <div className={styles.headerInner}>
           <Link className={styles.brand} href="/" aria-label="PyLake home">
-            <span className={styles.brandMark} aria-hidden="true">
-              PL
-            </span>
-            <span>PyLake</span>
+            <PyLakeLogo size={36} />
           </Link>
 
           <nav className={styles.desktopNav} aria-label="Main navigation">
@@ -291,6 +289,9 @@ export default function PublicLanding() {
             </a>
             <Link className={styles.signIn} href="/login">
               Sign in <ArrowUpRight size={14} />
+            </Link>
+            <Link className={styles.getStarted} href="/register">
+              Get started
             </Link>
             <button
               className={styles.menuButton}
@@ -325,6 +326,9 @@ export default function PublicLanding() {
           <Link href="/login" onClick={() => setMenuOpen(false)}>
             Sign in <ArrowUpRight size={14} />
           </Link>
+          <Link className={styles.mobileGetStarted} href="/register" onClick={() => setMenuOpen(false)}>
+            Get started <ArrowRight size={14} />
+          </Link>
         </nav>
       </header>
 
@@ -335,29 +339,32 @@ export default function PublicLanding() {
             <div className={styles.heroCopy}>
               <p className={styles.eyebrow}>
                 <span className={styles.eyebrowLine} />
-                OPEN-SOURCE LAKEHOUSE PLATFORM
+                THE NEXT GENERATION OF DATA ENGINEERING
               </p>
               <h1 id="hero-title">
-                Your data deserves
+                Your Data.
                 <br />
-                a better <em>universe.</em>
+                Your Intelligence.
+                <br />
+                <em>One Platform.</em>
               </h1>
               <p className={styles.heroDescription}>
-                One unified platform to ingest, transform, orchestrate and analyze
-                data. Everything connected. Everything in flow.
+                Unify data engineering, lakehouse analytics and AI-powered
+                intelligence in one platform built for the next generation of
+                data teams.
               </p>
               <div className={styles.heroActions}>
-                <Link className={styles.primaryAction} href="/workspaces">
+                <a className={styles.primaryAction} href="#platform">
                   Explore PyLake <ArrowRight size={16} />
-                </Link>
-                <a className={styles.secondaryAction} href={repositoryUrl} target="_blank" rel="noreferrer">
-                  <Github size={16} strokeWidth={1.7} /> View on GitHub
                 </a>
+                <Link className={styles.secondaryAction} href="/register">
+                  Get Started <ArrowUpRight size={16} />
+                </Link>
               </div>
               <div className={styles.heroFootnote}>
-                <span>OPEN SOURCE</span>
+                <span>BUILD. ANALYZE. INNOVATE.</span>
                 <span className={styles.footnoteDot} />
-                <span>BUILT FOR THE FULL DATA JOURNEY</span>
+                <span>AI-POWERED LAKEHOUSE PLATFORM</span>
               </div>
             </div>
             <div className={styles.heroVisual}>
@@ -371,18 +378,20 @@ export default function PublicLanding() {
         </section>
 
         <section className={`${styles.platformSection} ${styles.reveal}`} id="platform" data-landing-reveal>
-          <div className={styles.sectionEyebrow}>A CALMER WAY TO WORK WITH DATA</div>
+          <div className={styles.sectionEyebrow}>AI-POWERED LAKEHOUSE PLATFORM</div>
           <div className={styles.platformGrid}>
             <h2>
-              From first file
+              One Platform.
               <br />
-              to <em>clear insight.</em>
+              Every Data.
+              <br />
+              <em>Infinite Possibilities.</em>
             </h2>
             <div className={styles.platformCopy}>
               <p>
-                PyLake brings the essential parts of a lakehouse together. Ingest
-                data, shape it into trusted layers, query it, and orchestrate work
-                without losing the thread between each step.
+                Build and operate data products in one place. Move from source
+                files to versioned lakehouse tables, guarded SQL, repeatable
+                pipelines, and optional AI assistance without losing context.
               </p>
               <a href="#features" className={styles.textLink}>
                 See what connects <ArrowRight size={15} />
@@ -519,9 +528,9 @@ export default function PublicLanding() {
           </p>
         </section>
 
-        <section className={`${styles.openSourceSection} ${styles.reveal}`} data-landing-reveal>
+        <section className={`${styles.openSourceSection} ${styles.reveal}`} id="about" data-landing-reveal>
           <div className={styles.openSourceMark} aria-hidden="true">
-            <span>PL</span>
+            <PyLakeIcon size={64} />
             <i />
             <i />
             <i />
@@ -560,16 +569,13 @@ export default function PublicLanding() {
       <footer className={styles.footer}>
         <div className={styles.footerTop}>
           <Link className={styles.brand} href="/" aria-label="PyLake home">
-            <span className={styles.brandMark} aria-hidden="true">
-              PL
-            </span>
-            <span>PyLake</span>
+            <PyLakeLogo size={34} />
           </Link>
           <p>One Platform. Every Data. Infinite Possibilities.</p>
           <div className={styles.footerLinks}>
             <a href="#platform">Platform</a>
             <a href="#features">Features</a>
-            <a href="#architecture">Architecture</a>
+            <a href="#about">About</a>
             <a href={documentationUrl} target="_blank" rel="noreferrer">
               Docs
             </a>

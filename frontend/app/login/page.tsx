@@ -5,10 +5,13 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useAuth, User } from "@/components/auth-provider";
+import { PyLakeLogo } from "@/components/pylake-brand";
+import { useTheme } from "@/components/theme-provider";
 
 export default function LoginPage() {
   const router = useRouter();
   const { refresh } = useAuth();
+  const { theme } = useTheme();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -33,10 +36,9 @@ export default function LoginPage() {
 
   return (
     <main className="grid min-h-screen place-items-center px-6 bg-[var(--background)]">
-      <div className="fixed left-6 top-6 flex items-center gap-2.5">
-        <div className="grid size-8 place-items-center rounded-lg border border-[color-mix(in_srgb,var(--accent)_45%,var(--border))] bg-[var(--accent-soft)] text-[11px] font-semibold tracking-wide text-[var(--accent)]">PL</div>
-        <span className="font-semibold tracking-tight">PyLake</span>
-      </div>
+      <Link href="/" className="fixed left-6 top-6" aria-label="PyLake home">
+        <PyLakeLogo size={34} theme={theme} />
+      </Link>
       <form onSubmit={submit} className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--surface)] p-8 shadow-[var(--shadow-soft)]">
         <p className="text-xs font-medium uppercase tracking-[0.18em] text-[var(--accent)]">Welcome back</p>
         <h1 className="mt-2 text-2xl font-semibold">Sign in to PyLake</h1>

@@ -5,8 +5,25 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { AppShell } from "@/components/app-shell";
 
 export const metadata: Metadata = {
-  title: "PyLake",
-  description: "One Platform. Every Data. Infinite Possibilities.",
+  title: {
+    default: "PyLake — Build. Analyze. Innovate.",
+    template: "%s | PyLake",
+  },
+  description:
+    "PyLake brings data engineering, lakehouse analytics, SQL, pipelines and optional AI assistance into one open-source platform.",
+  applicationName: "PyLake",
+  openGraph: {
+    title: "PyLake — Build. Analyze. Innovate.",
+    description:
+      "An AI-powered lakehouse platform for data engineering, analytics and orchestration.",
+    siteName: "PyLake",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: "PyLake — Build. Analyze. Innovate.",
+    description: "AI-Powered Lakehouse Platform.",
+  },
 };
 
 export default function RootLayout({

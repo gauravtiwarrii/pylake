@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="pylake-mark" x1="7" x2="56" y1="8" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#12C8ED"/>
+      <stop offset=".48" stop-color="#168BFF"/>
+      <stop offset="1" stop-color="#773BFF"/>
+    </linearGradient>
+  </defs>
+  <path d="M12 52V11h22a15 15 0 1 1 0 30H18" fill="none" stroke="url(#pylake-mark)" stroke-linecap="round" stroke-linejoin="round" stroke-width="8"/>
+  <path d="M9 46c7-8 14-9 22-5s15 3 24-4M9 55c7-7 14-8 22-4s15 2 24-4" fill="none" stroke="url(#pylake-mark)" stroke-linecap="round" stroke-width="4"/>
+</svg>

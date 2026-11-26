@@ -24,6 +24,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { useTheme } from "@/components/theme-provider";
+import { PyLakeIcon, PyLakeLogo } from "@/components/pylake-brand";
 import { AICopilotChat } from "@/components/ai-copilot-chat";
 import {
   AIPageContextProvider,
@@ -94,7 +95,14 @@ function AppShellContent({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
   if (loading) {
-    return <main className="grid min-h-screen place-items-center bg-[var(--background)] text-[var(--muted)]">Loading PyLake...</main>;
+    return (
+      <main className="grid min-h-screen place-items-center bg-[var(--background)] text-[var(--muted)]">
+        <div className="flex flex-col items-center gap-3">
+          <PyLakeLogo size={38} />
+          <span className="text-sm">Loading your workspace...</span>
+        </div>
+      </main>
+    );
   }
   if (!user) return <>{children}</>;
 
@@ -127,8 +135,8 @@ function AppShellContent({ children }: { children: React.ReactNode }) {
       >
         <div className={`flex h-16 items-center border-b border-[var(--border)] ${collapsed ? "justify-center" : "justify-between px-4"}`}>
           <Link href="/workspaces" className="flex items-center gap-2.5" aria-label="PyLake workspaces">
-            <div className="grid size-8 shrink-0 place-items-center rounded-lg border border-[color-mix(in_srgb,var(--accent)_45%,var(--border))] bg-[var(--accent-soft)] text-[11px] font-semibold tracking-wide text-[var(--accent)]">PL</div>
-            {!collapsed && <span className="text-[15px] font-semibold tracking-tight">PyLake<span className="ml-2 text-[9px] font-medium uppercase tracking-[0.18em] text-[var(--muted)]">Lakehouse</span></span>}
+            {collapsed ? <PyLakeIcon size={34} /> : <PyLakeLogo size={32} theme={theme} />}
+            {!collapsed && <span className="text-[9px] font-medium uppercase tracking-[0.18em] text-[var(--muted)]">Lakehouse</span>}
           </Link>
           {!collapsed && (
             <button className="hidden size-8 place-items-center rounded-md text-[var(--muted)] hover:bg-[var(--surface-hover)] lg:grid" onClick={() => setCollapsed(true)} aria-label="Collapse sidebar">

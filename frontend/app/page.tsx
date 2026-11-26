@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import PublicLanding from "@/components/public-landing";
 
 export const metadata: Metadata = {
-  title: "PyLake — One platform. Every data.",
+  title: "PyLake — Build. Analyze. Innovate.",
   description:
-    "An open-source lakehouse for data ingestion, transformation, orchestration, SQL analytics, and data management.",
+    "Unify data engineering, lakehouse analytics and optional AI-powered intelligence in one platform built for the next generation of data teams.",
 };
 
 export default function HomePage() {
