@@ -364,3 +364,107 @@ The migration adds `ai_conversations`, `ai_messages`, and `ai_usage`. To reverse
 - `POST /api/v1/workspaces/{workspace_id}/ai/pipelines/generate`
 
 The Copilot is available from the workspace sidebar at `/workspaces/{workspaceId}/ai`, from the collapsible application-shell panel, and through contextual actions in Data Explorer, SQL Workspace, and Pipelines. See [the user guide](docs/AI_COPILOT_USER_GUIDE.md) for interaction details.
+
+## Direct uploads (Vercel / S3 / R2)
+
+Vercel function payloads are capped at ~4.5 MB and the filesystem is ephemeral, so multipart uploads through the backend do not work for large files in production. Setting `DIRECT_UPLOAD_ENABLED=true` switches the upload dialog to a three-step flow:
+
+1. The frontend calls `GET .../datasets/upload-config` to learn whether direct upload is active and what the size limit is.
+2. It calls `POST .../datasets/upload-url` with the filename, size, and content type. The backend validates the request (auth, CSRF, role, extension, size) and returns a short-lived presigned PUT URL — the object key is always server-generated and workspace-scoped.
+3. The browser PUTs the file directly to the storage bucket (no credentials or CSRF header needed — the URL carries a time-limited signature). Progress is shown via XHR upload events.
+4. The frontend calls `POST .../datasets/{dataset_id}/upload-complete`. The backend HEADs the object to verify it exists and matches the declared size, then runs the same schema-detection and catalog ingestion as the multipart path.
+
+The multipart path (`POST .../datasets/upload`) is unchanged and continues to work for `STORAGE_BACKEND=local` development.
+
+### Required environment variables
+
+| Variable | Purpose |
+|---|---|
+| `STORAGE_BACKEND` | Set to `minio` for any S3-compatible store (MinIO, R2, AWS S3) |
+| `STORAGE_ENDPOINT_URL` | Full endpoint URL, e.g. `https://<account>.r2.cloudflarestorage.com` |
+| `STORAGE_REGION` | Region for SigV4 signing — Cloudflare R2 requires `auto` |
+| `STORAGE_PUBLIC_ENDPOINT_URL` | Optional separate endpoint for presigned URL generation (CDN / R2 public hostname) |
+| `MINIO_ACCESS_KEY` | S3-compatible access key ID |
+| `MINIO_SECRET_KEY` | S3-compatible secret key |
+| `MINIO_BUCKET` | Bucket name |
+| `DIRECT_UPLOAD_ENABLED` | Set to `true` to enable the presigned-URL upload path |
+| `DIRECT_UPLOAD_URL_TTL_SECONDS` | Presigned URL lifetime in seconds (default: 900) |
+
+Leave `MINIO_ENDPOINT` and `MINIO_SECURE` at their defaults when using `STORAGE_ENDPOINT_URL`.
+
+### Bucket CORS rule
+
+The bucket must permit PUT requests from the frontend origin. Example rule (JSON / R2 / S3-compatible):
+
+```json
+[
+  {
+    "AllowedOrigins": [
+      "https://pylake.hellogaurav.me",
+      "http://localhost:3000"
+    ],
+    "AllowedMethods": ["PUT", "GET", "HEAD"],
+    "AllowedHeaders": ["Content-Type"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+Apply via the Cloudflare R2 dashboard → Bucket settings → CORS, or with `aws s3api put-bucket-cors`.
+
+### New endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/workspaces/{id}/datasets/upload-config` | Returns `{direct_upload, max_upload_size_bytes}` |
+| `POST` | `/api/v1/workspaces/{id}/datasets/upload-url` | Validates request, creates pending dataset, returns presigned PUT URL |
+| `POST` | `/api/v1/workspaces/{id}/datasets/{dataset_id}/upload-complete` | Verifies object, runs ingestion, returns completed dataset |
+
+---
+
+## Hosted pipeline worker (Railway)
+
+The pipeline worker is a long-lived process that cannot run as a Vercel function. Deploy it as a separate Railway service pointing at the same database and object storage.
+
+### Setup
+
+1. In the Railway project, create a new service from the same GitHub repository.
+2. Set the root directory to the repository root (not `backend/`).
+3. Railway will detect `backend/railway.json` automatically, which sets the builder to `backend/Dockerfile` and the start command to `python -m app.worker`.
+
+### Required environment variables
+
+Configure the same values used by the backend API:
+
+| Variable | Notes |
+|---|---|
+| `APP_ENV` | Set to `production` |
+| `DATABASE_URL` | Neon (or other managed Postgres) **unpooled** URL: `postgresql+psycopg://user:pass@host/db?sslmode=require` — use the unpooled connection string because the worker holds long-lived transactions |
+| `AUTH_SECRET` | Same value as the API service |
+| `STORAGE_BACKEND` | `minio` |
+| `STORAGE_ENDPOINT_URL` | Same R2 / S3 endpoint as the API |
+| `STORAGE_REGION` | Same value as the API |
+| `MINIO_ACCESS_KEY` | Same credentials as the API |
+| `MINIO_SECRET_KEY` | Same credentials as the API |
+| `MINIO_BUCKET` | Same bucket as the API |
+| `PIPELINE_JOB_CLAIM_SECONDS` | How long a worker holds a claimed job before another worker can steal it |
+| `PIPELINE_WORKER_POLL_SECONDS` | How often the worker polls for new jobs when idle |
+| `PIPELINE_STEP_TIMEOUT_SECONDS` | Per-step execution timeout |
+| `PIPELINE_MAX_RETRIES` | Maximum retries per run |
+| `WORKER_STALE_SECONDS` | Heartbeat age after which a worker is considered offline |
+
+The worker and API **must** share the same object storage bucket; datasets created through the API are stored there and read by the worker during pipeline execution.
+
+### One-time database setup on first deploy
+
+On Vercel the API does **not** run Alembic; it creates missing tables at startup with `Base.metadata.create_all`, so the production database has tables but no Alembic version record. The worker does not run migrations. Run this once against the production database (from a local or Railway shell with `DATABASE_URL` set) before applying any future migration:
+
+```bash
+cd backend
+python -m alembic stamp head
+```
+
+This records the current migration version without running migrations or changing data. Only run it when the tables already match the latest models.
+
+The Railway worker service does **not** expose a port or health-check endpoint; remove any Railway-generated health check from the service settings.

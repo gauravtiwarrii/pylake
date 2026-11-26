@@ -16,7 +16,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { api, API_URL } from "@/lib/api";
+import { api, API_URL, describeHttpError } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { useAIPageContext } from "@/components/ai-page-context";
 
@@ -42,6 +42,19 @@ type Preview = {
   rows: Record<string, unknown>[];
   row_count: number;
   returned_rows: number;
+};
+
+type UploadConfig = {
+  direct_upload: boolean;
+  max_upload_size_bytes: number;
+};
+
+type UploadUrlResponse = {
+  dataset_id: string;
+  upload_url: string;
+  method: string;
+  headers: Record<string, string>;
+  expires_in: number;
 };
 
 type WorkspaceMember = {
@@ -153,12 +166,25 @@ export default function DataExplorerPage({ params }: { params: Promise<{ workspa
     if (previewResult.error) setError(previewResult.error);
   };
 
+  const [uploadConfig, setUploadConfig] = useState<UploadConfig | null>(null);
+
+  // Fetch upload config when the dialog opens.
+  useEffect(() => {
+    if (!uploadOpen || !user) return;
+    api<UploadConfig>(`/api/v1/workspaces/${workspaceId}/datasets/upload-config`).then((result) => {
+      if (result.data) setUploadConfig(result.data);
+    });
+  }, [uploadOpen, user, workspaceId]);
+
+  const maxBytes = uploadConfig?.max_upload_size_bytes ?? 100 * 1024 * 1024;
+
   const validateFile = (file: File) => {
     const allowed = [".csv", ".json", ".ndjson", ".parquet", ".xlsx"];
     const lower = file.name.toLowerCase();
     if (!allowed.some((extension) => lower.endsWith(extension))) return "Choose a CSV, JSON, NDJSON, Parquet, or XLSX file.";
     if (file.size === 0) return "The selected file is empty.";
-    if (file.size > 100 * 1024 * 1024) return "The selected file exceeds the 100 MB upload limit.";
+    const limitMb = Math.round(maxBytes / (1024 * 1024));
+    if (file.size > maxBytes) return `The selected file exceeds the ${limitMb} MB upload limit.`;
     return "";
   };
 
@@ -178,9 +204,91 @@ export default function DataExplorerPage({ params }: { params: Promise<{ workspa
     setUploadError("");
     setError("");
     setProgress(0);
+
+    if (uploadConfig?.direct_upload) {
+      void uploadDirect(uploadFile);
+    } else {
+      uploadMultipart(uploadFile);
+    }
+  };
+
+  /** Direct upload: upload-url → PUT to presigned URL → upload-complete */
+  const uploadDirect = async (file: File) => {
+    // 1. Request a presigned PUT URL.
+    const urlResult = await api<UploadUrlResponse>(
+      `/api/v1/workspaces/${workspaceId}/datasets/upload-url`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          filename: file.name,
+          size_bytes: file.size,
+          content_type: file.type || "application/octet-stream",
+        }),
+      },
+    );
+    if (urlResult.error || !urlResult.data) {
+      setProgress(null);
+      setUploadError(urlResult.error ?? "Could not obtain an upload URL.");
+      return;
+    }
+    const { dataset_id, upload_url, headers: putHeaders } = urlResult.data;
+
+    // 2. PUT the file directly to the storage URL (no credentials, no CSRF).
+    let storageFailed = false;
+    await new Promise<void>((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("PUT", upload_url);
+      Object.entries(putHeaders).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) setProgress(Math.round((event.loaded / event.total) * 90));
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          setProgress(92);
+        } else {
+          storageFailed = true;
+          setProgress(null);
+          if (xhr.status === 0 || xhr.status === 403) {
+            setUploadError("Upload storage rejected the request — check bucket CORS configuration.");
+          } else {
+            setUploadError(`Storage returned HTTP ${xhr.status}. Please try again.`);
+          }
+        }
+        resolve();
+      };
+      xhr.onerror = () => {
+        storageFailed = true;
+        setProgress(null);
+        setUploadError("Upload storage rejected the request — check bucket CORS configuration.");
+        resolve();
+      };
+      xhr.send(file);
+    });
+
+    if (storageFailed) return;
+
+    // 3. Notify the backend to run ingestion.
+    setProgress(95);
+    const completeResult = await api<Dataset>(
+      `/api/v1/workspaces/${workspaceId}/datasets/${dataset_id}/upload-complete`,
+      { method: "POST" },
+    );
+    setProgress(null);
+    if (completeResult.error) {
+      setUploadError(completeResult.error);
+      return;
+    }
+    setUploadOpen(false);
+    setUploadFile(null);
+    setNotice("Dataset uploaded and ingested successfully.");
+    void load();
+  };
+
+  /** Legacy multipart upload — used when direct_upload is false or config not yet loaded. */
+  const uploadMultipart = (file: File) => {
     const form = new FormData();
-    form.append("file", uploadFile);
-    form.append("name", uploadFile.name.replace(/\.[^.]+$/, ""));
+    form.append("file", file);
+    form.append("name", file.name.replace(/\.[^.]+$/, ""));
     const request = new XMLHttpRequest();
     request.open("POST", `${API_URL}/api/v1/workspaces/${workspaceId}/datasets/upload`);
     request.withCredentials = true;
@@ -196,16 +304,30 @@ export default function DataExplorerPage({ params }: { params: Promise<{ workspa
         setNotice("Dataset uploaded and ingested successfully.");
         void load();
       } else {
+        let detail: string | undefined;
         try {
-          setUploadError(JSON.parse(request.responseText)?.detail ?? "Upload failed.");
+          const body = JSON.parse(request.responseText) as { detail?: unknown; request_id?: string };
+          detail = describeHttpError(request.status, body, "/datasets/upload");
         } catch {
-          setUploadError("Upload failed.");
+          detail = undefined;
+        }
+        const limitMb = Math.round(maxBytes / (1024 * 1024));
+        if (request.status === 413) {
+          setUploadError(`The file exceeds the ${limitMb} MB upload limit.`);
+        } else if (request.status === 400) {
+          setUploadError(detail ?? "Unsupported file format or invalid file.");
+        } else if (request.status === 401) {
+          setUploadError("Your session has expired. Please sign in again.");
+        } else if (request.status === 0) {
+          setUploadError("Upload could not reach the server. Check your connection.");
+        } else {
+          setUploadError(detail ?? "Upload failed. Please try again.");
         }
       }
     };
     request.onerror = () => {
       setProgress(null);
-      setUploadError("Upload could not reach the server.");
+      setUploadError("Upload could not reach the server. Check your connection.");
     };
     request.send(form);
   };
@@ -423,8 +545,8 @@ export default function DataExplorerPage({ params }: { params: Promise<{ workspa
         <div className="fixed inset-0 z-[60] grid place-items-center bg-black/70 px-4">
           <div className="w-full max-w-lg rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-2xl">
             <div className="flex items-start justify-between">
-              <div><h3 className="font-semibold">Upload dataset</h3><p className="mt-1 text-xs text-[var(--muted)]">CSV, JSON, NDJSON, Parquet or XLSX · Maximum 100 MB</p></div>
-              <button onClick={() => { setUploadOpen(false); setUploadFile(null); setUploadError(""); }} className="grid size-8 place-items-center rounded-md text-[var(--muted)] hover:bg-[var(--surface-hover)]"><X size={16} /></button>
+              <div><h3 className="font-semibold">Upload dataset</h3><p className="mt-1 text-xs text-[var(--muted)]">CSV, JSON, NDJSON, Parquet or XLSX · Maximum {Math.round(maxBytes / (1024 * 1024))} MB</p></div>
+              <button onClick={() => { setUploadOpen(false); setUploadFile(null); setUploadError(""); setUploadConfig(null); }} className="grid size-8 place-items-center rounded-md text-[var(--muted)] hover:bg-[var(--surface-hover)]"><X size={16} /></button>
             </div>
             <div
               onDragOver={(event) => { event.preventDefault(); setDragging(true); }}
@@ -456,7 +578,7 @@ export default function DataExplorerPage({ params }: { params: Promise<{ workspa
               <div className="mt-4"><div className="mb-2 flex justify-between text-xs text-[var(--muted)]"><span>Uploading</span><span>{progress}%</span></div><div className="h-1.5 overflow-hidden rounded-full bg-[var(--surface-hover)]"><div className="h-full rounded-full bg-[var(--accent)]" style={{ width: `${progress}%` }} /></div></div>
             )}
             <div className="mt-5 flex justify-end gap-2">
-              <button onClick={() => { setUploadOpen(false); setUploadFile(null); setUploadError(""); }} className="h-10 rounded-lg px-4 text-sm text-[var(--muted)]">Cancel</button>
+              <button onClick={() => { setUploadOpen(false); setUploadFile(null); setUploadError(""); setUploadConfig(null); }} className="h-10 rounded-lg px-4 text-sm text-[var(--muted)]">Cancel</button>
               <button disabled={!uploadFile || Boolean(uploadError) || progress !== null} onClick={upload} className="h-10 rounded-lg bg-[var(--accent)] px-4 text-sm font-medium text-[var(--accent-foreground)] disabled:opacity-40">Upload dataset</button>
             </div>
           </div>

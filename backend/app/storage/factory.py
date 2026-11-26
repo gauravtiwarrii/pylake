@@ -12,5 +12,8 @@ def get_storage():
             secret_key=settings.minio_secret_key,
             bucket=settings.minio_bucket,
             secure=settings.minio_secure,
+            endpoint_url=settings.storage_endpoint_url or None,
+            region=settings.storage_region,
+            presign_endpoint_url=settings.storage_public_endpoint_url or None,
         )
     return LocalFileStorage(settings.local_storage_dir)

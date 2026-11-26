@@ -43,3 +43,12 @@ class LocalFileStorage(StorageInterface):
         if not path.is_file():
             raise FileNotFoundError(key)
         return {"size": path.stat().st_size, "content_type": "application/octet-stream"}
+
+    def generate_presigned_put(self, key: str, content_type: str, expires: int) -> str:
+        raise NotImplementedError(
+            "Local filesystem storage does not support presigned PUT URLs. "
+            "Set STORAGE_BACKEND=minio and configure STORAGE_ENDPOINT_URL to use direct uploads."
+        )
+
+    def head(self, key: str) -> dict:
+        return self.get_metadata(key)

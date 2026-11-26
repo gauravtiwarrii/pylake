@@ -21,3 +21,5 @@ Thumbs.db
 *.log
 alembic_migration_test.db
 milestone*_migration_test.db
+frontend/.test-tmp/
+backend/.test-tmp/

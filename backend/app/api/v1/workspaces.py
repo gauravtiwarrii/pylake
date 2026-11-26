@@ -117,9 +117,26 @@ def list_members(
     workspace_id: UUID,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
-) -> list[WorkspaceMember]:
+) -> list[MemberResponse]:
     membership(db, workspace_id, user.id)
-    return db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == workspace_id).all()
+    rows = (
+        db.query(WorkspaceMember, User)
+        .join(User, User.id == WorkspaceMember.user_id)
+        .filter(WorkspaceMember.workspace_id == workspace_id)
+        .all()
+    )
+    return [
+        MemberResponse(
+            id=member.id,
+            user_id=member.user_id,
+            workspace_id=member.workspace_id,
+            role=member.role.value if hasattr(member.role, "value") else str(member.role),
+            joined_at=member.joined_at,
+            email=member_user.email,
+            full_name=member_user.full_name,
+        )
+        for member, member_user in rows
+    ]
 
 
 @router.post("/{workspace_id}/members", response_model=MemberResponse, status_code=status.HTTP_201_CREATED)

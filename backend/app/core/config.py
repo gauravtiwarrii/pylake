@@ -32,11 +32,26 @@ class Settings(BaseSettings):
     csrf_cookie_name: str = "pylake_csrf"
     session_ttl_hours: int = 24
     cookie_secure: bool = False
+    # S3-compatible object storage (MinIO, Cloudflare R2, AWS S3, …).
+    # STORAGE_BACKEND=minio activates boto3-based storage for any S3-compatible endpoint.
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "pylake"
     minio_secret_key: str = "pylake-local-secret"
     minio_bucket: str = "pylake"
     minio_secure: bool = False
+    # Optional: full endpoint URL for the boto3 client, e.g.
+    #   https://<account>.r2.cloudflarestorage.com
+    # Falls back to building from minio_endpoint + minio_secure when not set.
+    storage_endpoint_url: str | None = None
+    # Region used for SigV4 signing. Cloudflare R2 requires "auto".
+    storage_region: str = "auto"
+    # Optional separate public endpoint for presigned URL generation (CDN / R2 public bucket).
+    # Leave unset to use storage_endpoint_url.
+    storage_public_endpoint_url: str | None = None
+    # Enable the direct-to-storage upload flow (presigned PUT URLs).
+    direct_upload_enabled: bool = False
+    # Presigned URL lifetime in seconds.
+    direct_upload_url_ttl_seconds: int = 900
     ai_provider: str = "disabled"
     ai_base_url: str = ""
     ai_api_key: SecretStr | None = None

@@ -48,3 +48,6 @@ class MemberResponse(BaseModel):
     workspace_id: UUID
     role: str
     joined_at: datetime
+    # Display fields (populated by the members listing; optional elsewhere)
+    email: str | None = None
+    full_name: str | None = None

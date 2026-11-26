@@ -28,7 +28,17 @@ type PipelineMetrics = {
 };
 type WorkerHealth = { workers: { worker_id: string; status: string; last_seen_at: string }[] };
 type Run = { id: string; status: string; created_at: string; duration_ms: number | null };
-type Member = { id: string; user_id: string; role: "OWNER" | "ADMIN" | "EDITOR" | "VIEWER" };
+type Member = { id: string; user_id: string; role: "OWNER" | "ADMIN" | "EDITOR" | "VIEWER"; email?: string | null; full_name?: string | null };
+
+function memberLabel(member: Member): string {
+  return member.full_name?.trim() || member.email || "Unknown member";
+}
+
+function memberInitials(member: Member): string {
+  const source = member.full_name?.trim() || member.email || "?";
+  const parts = source.split(/[\s@._-]+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? "")).toUpperCase();
+}
 
 export default function WorkspaceOverviewPage({ params }: { params: Promise<{ workspaceId: string }> }) {
   const { workspaceId } = use(params);
@@ -87,6 +97,8 @@ export default function WorkspaceOverviewPage({ params }: { params: Promise<{ wo
   const silver = tables.filter((table) => table.current_layer === "SILVER").length;
   const gold = tables.filter((table) => table.current_layer === "GOLD").length;
 
+  const workersOnline = workers.filter((worker) => worker.status === "ONLINE").length;
+
   return (
     <main className="min-h-[calc(100vh-64px)] px-4 py-6 md:px-7 lg:px-8">
       <div className="mx-auto max-w-[1500px]">
@@ -111,7 +123,7 @@ export default function WorkspaceOverviewPage({ params }: { params: Promise<{ wo
           <MetricCard title="Datasets" value={datasets} icon={Database} detail={`${storage.total_objects} storage objects`} />
           <MetricCard title="Lakehouse tables" value={tables.length} icon={FolderKanban} detail={`${gold} Gold · ${silver} Silver`} />
           <MetricCard title="Pipeline runs" value={metrics?.total_runs ?? 0} icon={Workflow} detail={`${metrics?.status_distribution?.SUCCEEDED ?? 0} successful`} />
-          <MetricCard title="Storage" value={formatBytes(storage.total_bytes)} icon={Activity} detail={`${workers.filter((worker) => worker.status !== "STALE").length} active workers`} />
+          <MetricCard title="Storage" value={formatBytes(storage.total_bytes)} icon={Activity} detail={`${workersOnline} active workers`} />
         </div>
 
         <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,.8fr)]">
@@ -166,8 +178,11 @@ export default function WorkspaceOverviewPage({ params }: { params: Promise<{ wo
                 <EmptyState title="No member data" detail="Member details are unavailable." />
               ) : members.slice(0, 6).map((member) => (
                 <div key={member.id} className="flex h-12 items-center px-5 text-sm">
-                  <div className="grid size-7 place-items-center rounded-full bg-[var(--surface-hover)] text-xs">{member.user_id.slice(0, 2).toUpperCase()}</div>
-                  <span className="ml-3 truncate font-mono text-xs text-[var(--muted)]">{member.user_id}</span>
+                  <div className="grid size-7 place-items-center rounded-full bg-[var(--surface-hover)] text-xs">{memberInitials(member)}</div>
+                  <div className="ml-3 min-w-0">
+                    <p className="truncate text-sm">{memberLabel(member)}{member.user_id === user?.id ? " (you)" : ""}</p>
+                    {member.full_name && member.email && <p className="truncate text-xs text-[var(--muted)]">{member.email}</p>}
+                  </div>
                   <span className="ml-auto rounded-full border border-[var(--border)] px-2 py-1 text-xs">{member.role}</span>
                 </div>
               ))}
@@ -180,8 +195,8 @@ export default function WorkspaceOverviewPage({ params }: { params: Promise<{ wo
             </div>
             <div className="p-5">
               <StatusRow label="Backend" value="Healthy" good />
-              <StatusRow label="Worker" value={workers.length ? `${workers.filter((worker) => worker.status !== "STALE").length} online` : "Unavailable"} good={workers.some((worker) => worker.status !== "STALE")} />
-              <StatusRow label="Average run time" value={metrics?.average_duration_ms ? `${metrics.average_duration_ms} ms` : "Unavailable"} />
+              <StatusRow label="Worker" value={workersOnline > 0 ? `${workersOnline} online` : workers.length ? "Offline" : "Not running"} good={workersOnline > 0} />
+              <StatusRow label="Average run time" value={metrics?.average_duration_ms ? `${metrics.average_duration_ms} ms` : "No runs yet"} />
               <StatusRow label="Catalog" value={tables.length ? "Discoverable" : "No assets"} good={tables.length > 0} />
             </div>
           </section>
