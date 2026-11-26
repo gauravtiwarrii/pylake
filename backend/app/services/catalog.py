@@ -141,6 +141,7 @@ def profile_asset(db, storage: StorageInterface, asset: CatalogAsset) -> dict:
             }
 
         statistics = {}
+        numeric_outliers_sampled = {}
         for name in frame.columns:
             values = frame[name]
             dtype = str(values.dtype)
@@ -154,12 +155,24 @@ def profile_asset(db, storage: StorageInterface, asset: CatalogAsset) -> dict:
                 item["minimum"] = values.min()
                 item["maximum"] = values.max()
                 item["mean"] = values.mean()
+                numeric = values.cast(pl.Float64, strict=False).fill_nan(None).drop_nulls()
+                lower_quartile = numeric.quantile(0.25)
+                upper_quartile = numeric.quantile(0.75)
+                if lower_quartile is not None and upper_quartile is not None:
+                    spread = upper_quartile - lower_quartile
+                    lower_bound = lower_quartile - 1.5 * spread
+                    upper_bound = upper_quartile + 1.5 * spread
+                    numeric_outliers_sampled[name] = int(
+                        ((numeric < lower_bound) | (numeric > upper_bound)).sum()
+                    )
             statistics[name] = item
         result = {
             "row_count": version.row_count if version else (dataset.row_count if "dataset" in locals() and dataset else frame.height),
             "column_count": version.column_count if version else (dataset.column_count if "dataset" in locals() and dataset else frame.width),
             "statistics": statistics,
             "sample_rows": frame.height,
+            "duplicate_rows_sampled": max(frame.height - frame.unique().height, 0),
+            "numeric_outliers_sampled": numeric_outliers_sampled,
             "uncomputed": [],
         }
 

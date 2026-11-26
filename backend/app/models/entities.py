@@ -91,6 +91,8 @@ class User(Base):
     owned_workspaces: Mapped[list["Workspace"]] = relationship(back_populates="owner", cascade="all")
     memberships: Mapped[list["WorkspaceMember"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     sessions: Mapped[list["AuthSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    ai_conversations: Mapped[list["AIConversation"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    ai_usage_events: Mapped[list["AIUsage"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class Workspace(Base):
@@ -106,6 +108,8 @@ class Workspace(Base):
 
     owner: Mapped["User"] = relationship(back_populates="owned_workspaces")
     members: Mapped[list["WorkspaceMember"]] = relationship(back_populates="workspace", cascade="all, delete-orphan")
+    ai_conversations: Mapped[list["AIConversation"]] = relationship(back_populates="workspace", cascade="all, delete-orphan")
+    ai_usage_events: Mapped[list["AIUsage"]] = relationship(back_populates="workspace", cascade="all, delete-orphan")
 
 
 class WorkspaceMember(Base):
@@ -442,3 +446,51 @@ class RateLimitEvent(Base):
     scope_key: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
     endpoint: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, default=utcnow, server_default=func.now())
+
+
+class AIConversation(Base):
+    __tablename__ = "ai_conversations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, server_default=func.now())
+
+    workspace: Mapped["Workspace"] = relationship(back_populates="ai_conversations")
+    user: Mapped["User"] = relationship(back_populates="ai_conversations")
+    messages: Mapped[list["AIMessage"]] = relationship(back_populates="conversation", cascade="all, delete-orphan")
+    usage_events: Mapped[list["AIUsage"]] = relationship(back_populates="conversation")
+
+
+class AIMessage(Base):
+    __tablename__ = "ai_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("ai_conversations.id", ondelete="CASCADE"), index=True, nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+
+    conversation: Mapped["AIConversation"] = relationship(back_populates="messages")
+
+
+class AIUsage(Base):
+    __tablename__ = "ai_usage"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("ai_conversations.id", ondelete="SET NULL"), index=True, nullable=True)
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    model: Mapped[str] = mapped_column(String(200), nullable=False)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+
+    workspace: Mapped["Workspace"] = relationship(back_populates="ai_usage_events")
+    user: Mapped["User"] = relationship(back_populates="ai_usage_events")
+    conversation: Mapped["AIConversation | None"] = relationship(back_populates="usage_events")

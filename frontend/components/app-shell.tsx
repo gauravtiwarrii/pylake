@@ -15,6 +15,7 @@ import {
   Search,
   Settings,
   ScrollText,
+  Sparkles,
   Sun,
   Workflow,
   X,
@@ -23,6 +24,7 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { useTheme } from "@/components/theme-provider";
+import { AICopilotChat } from "@/components/ai-copilot-chat";
 
 type Workspace = {
   id: string;
@@ -35,6 +37,7 @@ const navigation = [
   { label: "Data Explorer", href: "data", icon: Database },
   { label: "Lakehouse", href: "lakehouse", icon: FolderKanban },
   { label: "SQL Workspace", href: "sql", icon: Braces },
+  { label: "AI Copilot", href: "ai", icon: Sparkles },
   { label: "Pipelines", href: "pipelines", icon: Workflow },
   { label: "Data Catalog", href: "catalog", icon: Search },
   { label: "Monitoring", href: "pipelines", icon: BarChart3 },
@@ -52,6 +55,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [workspaceMenu, setWorkspaceMenu] = useState(false);
   const [userMenu, setUserMenu] = useState(false);
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
 
   const workspaceId = (() => {
     const match = pathname.match(/^\/workspaces\/([^/]+)/);
@@ -211,6 +215,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <kbd className="rounded border border-[var(--border)] px-1.5 py-0.5 text-[10px]">⌘K</kbd>
               </button>
             )}
+            {workspaceId && (
+              <button
+                onClick={() => setAiPanelOpen((value) => !value)}
+                aria-expanded={aiPanelOpen}
+                aria-label={aiPanelOpen ? "Close AI Copilot" : "Open AI Copilot"}
+                className={`grid size-9 place-items-center rounded-md transition-colors ${aiPanelOpen ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "text-[var(--muted)] hover:bg-[var(--surface-hover)]"}`}
+              >
+                <Sparkles size={16} />
+              </button>
+            )}
             <button
               className="grid size-9 place-items-center rounded-md text-[var(--muted)] hover:bg-[var(--surface-hover)]"
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
@@ -240,6 +254,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </header>
         <div className="min-w-0">{children}</div>
       </div>
+      {workspaceId && aiPanelOpen && (
+        <section aria-label="AI Copilot panel" className="fixed bottom-4 right-4 z-[60] w-[min(100vw-2rem,440px)] overflow-hidden rounded-xl border border-[var(--border-strong)] bg-[var(--background)] shadow-2xl">
+          <div className="flex h-11 items-center justify-between border-b border-[var(--border)] bg-[var(--surface)] px-3">
+            <p className="flex items-center gap-2 text-xs font-semibold"><Sparkles size={14} className="text-[var(--accent)]" /> PyLake AI Copilot</p>
+            <div className="flex items-center gap-3">
+              <Link href={`/workspaces/${workspaceId}/ai`} onClick={() => setAiPanelOpen(false)} className="text-[10px] text-[var(--muted)] hover:text-[var(--accent)]">Open full page</Link>
+              <button onClick={() => setAiPanelOpen(false)} aria-label="Close AI Copilot" className="text-xs text-[var(--muted)] hover:text-[var(--foreground)]">Close</button>
+            </div>
+          </div>
+          <AICopilotChat workspaceId={workspaceId} compact />
+        </section>
+      )}
     </div>
   );
 }

@@ -34,3 +34,23 @@ export async function api<T>(
   }
   return { data: body as T };
 }
+
+export async function streamApi(
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const headers = new Headers({
+    Accept: "text/event-stream",
+    "Content-Type": "application/json",
+  });
+  const token = csrfToken();
+  if (token) headers.set("X-CSRF-Token", token);
+  return fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers,
+    credentials: "include",
+    body: JSON.stringify(body),
+    signal,
+  });
+}

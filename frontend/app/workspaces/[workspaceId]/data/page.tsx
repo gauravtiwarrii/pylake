@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   ChevronLeft,
   ChevronRight,
@@ -372,6 +373,9 @@ export default function DataExplorerPage({ params }: { params: Promise<{ workspa
                       <a href={`${API_URL}/api/v1/workspaces/${workspaceId}/datasets/${selected.id}/download`} className="flex h-10 items-center justify-center gap-2 rounded-lg border border-[var(--border)] text-sm hover:border-[var(--border-strong)]">
                         <Download size={15} /> Download original
                       </a>
+                      <Link href={`/workspaces/${workspaceId}/ai?dataset_id=${selected.id}`} className="flex h-10 items-center justify-center gap-2 rounded-lg border border-[var(--border)] text-sm hover:border-[var(--border-strong)]">
+                        Ask Copilot about this dataset
+                      </Link>
                     </div>
                   )}
 

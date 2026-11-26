@@ -214,7 +214,8 @@ export default function SqlWorkspacePage({
       setSaved([]);
       setRole(null);
       setResult(null);
-      setSql(initialSql);
+      const importedSql = new URLSearchParams(window.location.search).get("sql_text");
+      setSql(importedSql ?? initialSql);
       setSelectedSavedId(null);
       setPanel("catalog");
       setSearch("");
@@ -627,6 +628,12 @@ export default function SqlWorkspacePage({
                   {selectedSaved && sql !== selectedSaved.sql_text && <span className="rounded-full bg-[var(--surface-raised)] px-2 py-1 text-[9px] text-[var(--warning)]">Modified</span>}
                 </div>
                 <div className="flex items-center gap-1.5">
+                  <Link
+                    href={`/workspaces/${workspaceId}/ai?sql_text=${encodeURIComponent(sql)}`}
+                    className="hidden h-8 items-center rounded-lg border border-[var(--border)] px-2.5 text-[11px] text-[var(--muted)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--foreground)] sm:inline-flex"
+                  >
+                    Ask Copilot
+                  </Link>
                   {canManageSaved ? (
                     <>
                       <button type="button" onClick={() => openSaveDialog(false)} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-strong)] px-2.5 text-[11px] font-medium transition-colors hover:bg-[var(--surface-hover)]">

@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,6 +37,24 @@ class Settings(BaseSettings):
     minio_secret_key: str = "pylake-local-secret"
     minio_bucket: str = "pylake"
     minio_secure: bool = False
+    ai_provider: str = "disabled"
+    ai_base_url: str = ""
+    ai_api_key: SecretStr | None = None
+    nvidia_api_key: SecretStr | None = None
+    ai_model: str = "gpt-4o-mini"
+    ai_timeout_seconds: float = Field(default=45, gt=0, le=300)
+    ai_max_retries: int = Field(default=1, ge=0, le=5)
+    ai_max_output_tokens: int = Field(default=4096, ge=1, le=8192)
+    ai_temperature: float = Field(default=0.7, ge=0, le=2)
+    ai_top_p: float = Field(default=0.95, gt=0, le=1)
+    ai_enable_thinking: bool = True
+    ai_reasoning_budget: int = Field(default=2048, ge=0, le=8192)
+    ai_max_context_chars: int = Field(default=12000, ge=1000, le=100000)
+    ai_max_input_chars: int = Field(default=30000, ge=12000, le=100000)
+    ai_max_history_messages: int = Field(default=12, ge=1, le=50)
+    ai_rate_limit_requests: int = Field(default=30, ge=1, le=10000)
+    ai_rate_limit_window_seconds: int = Field(default=3600, ge=1, le=86400)
+    ai_daily_token_limit: int = Field(default=100000, ge=0)
 
 
 @lru_cache
