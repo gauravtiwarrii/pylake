@@ -494,3 +494,26 @@ class AIUsage(Base):
     workspace: Mapped["Workspace"] = relationship(back_populates="ai_usage_events")
     user: Mapped["User"] = relationship(back_populates="ai_usage_events")
     conversation: Mapped["AIConversation | None"] = relationship(back_populates="usage_events")
+
+
+class AIRecommendation(Base):
+    __tablename__ = "ai_recommendations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    page_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    category: Mapped[str] = mapped_column(String(40), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    evidence_json: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    confidence: Mapped[str] = mapped_column(String(10), nullable=False)
+    expected_impact: Mapped[str] = mapped_column(Text, nullable=False)
+    proposed_action_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    risk_level: Mapped[str] = mapped_column(String(10), nullable=False)
+    required_permissions_json: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    approval_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="PROPOSED", index=True, nullable=False)
+    decision_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, server_default=func.now())

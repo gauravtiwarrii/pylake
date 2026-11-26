@@ -5,12 +5,18 @@ from uuid import UUID
 
 import sqlglot
 from sqlglot import exp
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.models.entities import (
+    AuditLog,
+    CatalogAsset,
+    CatalogColumn,
+    CatalogProfile,
     Dataset,
     DatasetVersion,
+    LineageEdge,
     LakehouseTable,
     LakehouseVersionStatus,
     Pipeline,
@@ -18,6 +24,7 @@ from app.models.entities import (
     PipelineStep,
     QueryHistory,
     Workspace,
+    WorkspaceMember,
 )
 
 
@@ -76,7 +83,7 @@ def _schema(schema_json: dict[str, Any] | None) -> list[dict[str, str]]:
 
 
 def _fit_context(context: dict[str, Any], max_chars: int) -> dict[str, Any]:
-    drop_order = ["recent_queries", "recent_pipelines", "datasets", "tables"]
+    drop_order = ["recent_activity", "lineage", "recent_queries", "recent_pipelines", "datasets", "tables"]
     while len(json.dumps(context, ensure_ascii=True, separators=(",", ":"))) > max_chars:
         removed = False
         for key in drop_order:
@@ -94,6 +101,12 @@ def _fit_context(context: dict[str, Any], max_chars: int) -> dict[str, Any]:
                     break
             if removed:
                 break
+        selected_asset = context.get("selected_asset")
+        if not removed and isinstance(selected_asset, dict):
+            profile = selected_asset.get("profile")
+            if isinstance(profile, dict) and profile.get("statistics"):
+                profile["statistics"].pop()
+                removed = True
         if not removed and context.get("current_sql"):
             context["current_sql"] = context["current_sql"][: max(100, max_chars // 2)]
             removed = True
@@ -111,6 +124,10 @@ def build_workspace_context(
     dataset_id: UUID | None = None,
     table_id: UUID | None = None,
     pipeline_id: UUID | None = None,
+    catalog_asset_id: UUID | None = None,
+    page_type: str = "ai",
+    active_view: str | None = None,
+    include_audit: bool = False,
     query_text: str | None = None,
 ) -> tuple[dict[str, Any], int]:
     workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
@@ -119,6 +136,7 @@ def build_workspace_context(
 
     context: dict[str, Any] = {
         "workspace": {"name": _safe_label(workspace.name, 120)},
+        "page": {"type": page_type, "active_view": _safe_label(active_view, 40)},
         "datasets": [],
         "tables": [],
         "recent_queries": [],
@@ -217,6 +235,118 @@ def build_workspace_context(
             for run, name in runs
         ]
         resource_count += len(runs)
+
+    selected_asset = None
+    if catalog_asset_id:
+        selected_asset = db.query(CatalogAsset).filter(
+            CatalogAsset.id == catalog_asset_id,
+            CatalogAsset.workspace_id == workspace_id,
+        ).first()
+        if not selected_asset:
+            raise WorkspaceResourceNotFound("Catalog asset not found in workspace")
+    elif table_id:
+        selected_asset = db.query(CatalogAsset).filter(
+            CatalogAsset.workspace_id == workspace_id,
+            CatalogAsset.lakehouse_table_id == table_id,
+        ).first()
+    elif dataset_id:
+        selected_asset = db.query(CatalogAsset).filter(
+            CatalogAsset.workspace_id == workspace_id,
+            CatalogAsset.dataset_id == dataset_id,
+        ).first()
+
+    if selected_asset:
+        if (
+            (table_id and selected_asset.lakehouse_table_id != table_id)
+            or (dataset_id and selected_asset.dataset_id != dataset_id)
+        ):
+            raise WorkspaceResourceNotFound("Selected catalog asset does not match the requested resource")
+        columns = db.query(CatalogColumn).filter(
+            CatalogColumn.asset_id == selected_asset.id,
+        ).order_by(CatalogColumn.name).limit(40).all()
+        profile = db.query(CatalogProfile).filter(
+            CatalogProfile.asset_id == selected_asset.id,
+        ).first()
+        profile_data = profile.statistics_json if profile and isinstance(profile.statistics_json, dict) else {}
+        statistics = profile_data.get("statistics", {}) if isinstance(profile_data, dict) else {}
+        safe_statistics = {}
+        if isinstance(statistics, dict):
+            for name, item in list(statistics.items())[:20]:
+                if not isinstance(item, dict):
+                    continue
+                safe_statistics[_safe_label(str(name), 100) or "unknown"] = {
+                    key: item[key]
+                    for key in ("data_type", "null_count", "null_percentage", "distinct_count")
+                    if key in item and isinstance(item[key], (str, int, float, bool, type(None)))
+                }
+        context["selected_asset"] = {
+            "id": str(selected_asset.id),
+            "asset_type": _safe_label(selected_asset.asset_type, 20),
+            "name": _safe_label(selected_asset.name, 120),
+            "dataset_id": str(selected_asset.dataset_id) if selected_asset.dataset_id else None,
+            "table_id": str(selected_asset.lakehouse_table_id) if selected_asset.lakehouse_table_id else None,
+            "description": redacted_text(selected_asset.description, 300),
+            "tags": [redacted_text(str(tag), 80) for tag in (selected_asset.tags_json or [])[:10]],
+            "format": _safe_label(selected_asset.format, 20),
+            "layer": _safe_label(selected_asset.layer, 20),
+            "columns": [
+                {
+                    "name": _safe_label(column.name, 100),
+                    "data_type": _safe_label(column.data_type, 60),
+                    "description": redacted_text(column.description, 160),
+                }
+                for column in columns
+            ],
+            "profile": {
+                "row_count": profile.row_count if profile else None,
+                "column_count": profile.column_count if profile else None,
+                "statistics": safe_statistics,
+                "uncomputed": profile_data.get("uncomputed", [])[:10] if isinstance(profile_data, dict) else [],
+            } if profile else None,
+        }
+        edges = db.query(LineageEdge).filter(
+            LineageEdge.workspace_id == workspace_id,
+            or_(
+                LineageEdge.source_asset_id == selected_asset.id,
+                LineageEdge.target_asset_id == selected_asset.id,
+            ),
+        ).order_by(LineageEdge.created_at.desc()).limit(20).all()
+        context["lineage"] = [
+            {
+                "relation_type": _safe_label(edge.relation_type, 50),
+                "source_type": _safe_label(edge.source_type, 50),
+                "target_type": _safe_label(edge.target_type, 50),
+                "execution_status": _safe_label(edge.execution_status, 20),
+            }
+            for edge in edges
+        ]
+        resource_count += 1 + len(columns) + len(edges)
+
+    if include_audit and page_type in {"audit", "workspace"}:
+        recent_activity = db.query(AuditLog).filter(
+            AuditLog.workspace_id == workspace_id,
+        ).order_by(AuditLog.created_at.desc()).limit(10).all()
+        context["recent_activity"] = [
+            {
+                "action": _safe_label(item.action, 100),
+                "target_type": _safe_label(item.target_type, 60),
+                "created_at": item.created_at.isoformat(),
+            }
+            for item in recent_activity
+        ]
+        resource_count += len(recent_activity)
+    if page_type in {"dashboard", "workspace"}:
+        role_counts = db.query(
+            WorkspaceMember.role,
+        ).filter(WorkspaceMember.workspace_id == workspace_id).all()
+        context["membership_summary"] = {
+            "member_count": len(role_counts),
+            "role_counts": {
+                role: sum(1 for member_role, in role_counts if member_role.value == role)
+                for role in ("OWNER", "ADMIN", "EDITOR", "VIEWER")
+            },
+        }
+        resource_count += len(role_counts)
 
     if query_text:
         sql_limit = min(settings.ai_max_context_chars, settings.ai_max_input_chars // 3)

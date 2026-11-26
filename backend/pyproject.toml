@@ -22,7 +22,6 @@ dependencies = [
   "pydantic>=2.10",
   "pydantic-settings>=2.7",
   "pyarrow>=18",
-  "python-jose[cryptography]>=3.3",
   "python-multipart>=0.0.20",
   "sqlalchemy>=2.0",
   "sqlglot>=26",

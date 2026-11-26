@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
+import { useAIPageContext } from "@/components/ai-page-context";
 
 type Workspace = { id: string; name: string; slug: string; description: string | null };
 type DatasetList = { items: unknown[]; total: number };
@@ -32,6 +33,7 @@ type Member = { id: string; user_id: string; role: "OWNER" | "ADMIN" | "EDITOR" 
 export default function WorkspaceOverviewPage({ params }: { params: Promise<{ workspaceId: string }> }) {
   const { workspaceId } = use(params);
   const { user } = useAuth();
+  useAIPageContext({ page_type: "dashboard" });
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [datasets, setDatasets] = useState(0);
   const [tables, setTables] = useState<LakehouseTable[]>([]);
@@ -92,14 +94,14 @@ export default function WorkspaceOverviewPage({ params }: { params: Promise<{ wo
 
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-sm text-[var(--muted)]">{workspace?.slug ?? "workspace"}</p>
-            <h2 className="mt-1 text-2xl font-semibold tracking-tight">{workspace?.name ?? "Workspace overview"}</h2>
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-[var(--accent)]">{workspace?.slug ?? "workspace"}</p>
+            <h2 className="mt-1 text-3xl font-semibold tracking-tight">{workspace?.name ?? "Workspace overview"}</h2>
           </div>
           <div className="flex gap-2">
-            <Link href={`/workspaces/${workspaceId}/data`} className="flex h-9 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 text-sm hover:border-[var(--border-strong)]">
+            <Link href={`/workspaces/${workspaceId}/data`} className="flex h-10 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 text-sm hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)]">
               <Upload size={15} /> Upload
             </Link>
-            <Link href={`/workspaces/${workspaceId}/sql`} className="flex h-9 items-center gap-2 rounded-md bg-[var(--accent)] px-3 text-sm font-medium text-[var(--accent-foreground)]">
+            <Link href={`/workspaces/${workspaceId}/sql`} className="flex h-10 items-center gap-2 rounded-lg bg-[var(--accent)] px-4 text-sm font-medium text-[var(--accent-foreground)] hover:bg-[var(--accent-strong)]">
               <Braces size={15} /> New query
             </Link>
           </div>
@@ -146,9 +148,9 @@ export default function WorkspaceOverviewPage({ params }: { params: Promise<{ wo
               <h3 className="text-sm font-semibold">Medallion distribution</h3>
             </div>
             <div className="p-5">
-              <LayerBar label="Bronze" count={bronze} total={tables.length} color="var(--muted)" />
-              <LayerBar label="Silver" count={silver} total={tables.length} color="var(--accent)" />
-              <LayerBar label="Gold" count={gold} total={tables.length} color="var(--success)" />
+              <LayerBar label="Bronze" count={bronze} total={tables.length} color="var(--layer-bronze)" />
+              <LayerBar label="Silver" count={silver} total={tables.length} color="var(--layer-silver)" />
+              <LayerBar label="Gold" count={gold} total={tables.length} color="var(--layer-gold)" />
             </div>
           </section>
         </div>
@@ -191,12 +193,12 @@ export default function WorkspaceOverviewPage({ params }: { params: Promise<{ wo
 
 function MetricCard({ title, value, detail, icon: Icon }: { title: string; value: string | number; detail: string; icon: typeof Database }) {
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5">
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--shadow-soft)]">
       <div className="flex items-start justify-between">
         <p className="text-sm text-[var(--muted)]">{title}</p>
-        <div className="grid size-8 place-items-center rounded-md bg-[var(--surface-hover)] text-[var(--accent)]"><Icon size={16} /></div>
+        <div className="grid size-8 place-items-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--accent)]"><Icon size={16} /></div>
       </div>
-      <p className="mt-4 text-2xl font-semibold tracking-tight">{value}</p>
+      <p className="mt-4 text-3xl font-semibold tracking-tight">{value}</p>
       <p className="mt-1 text-xs text-[var(--muted)]">{detail}</p>
     </div>
   );

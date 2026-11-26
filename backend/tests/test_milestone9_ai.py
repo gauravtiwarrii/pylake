@@ -2,6 +2,7 @@ import json
 import re
 import tempfile
 from collections.abc import Iterator, Sequence
+from uuid import UUID
 
 import httpx
 import pytest
@@ -19,7 +20,7 @@ from app.ai.prompts import build_chat_messages
 from app.core.config import Settings
 from app.core.db import Base, get_db
 from app.main import app
-from app.models.entities import AIUsage, DatasetVersion, Pipeline
+from app.models.entities import AIUsage, CatalogAsset, DatasetVersion, Pipeline
 from app.storage.local import LocalFileStorage
 
 real_configured_provider = ai_api._configured_provider
@@ -855,7 +856,147 @@ def test_nvidia_request_options_and_reasoning_are_not_user_content(monkeypatch):
         assert payload["max_tokens"] == 4096
         assert payload["temperature"] == 0.7
         assert payload["top_p"] == 0.95
-        assert payload["extra_body"] == {
-            "chat_template_kwargs": {"enable_thinking": True},
-            "reasoning_budget": 2048,
-        }
+        assert payload["chat_template_kwargs"] == {"enable_thinking": True}
+        assert payload["reasoning_budget"] == 2048
+        assert "extra_body" not in payload
+
+
+def test_page_context_recommendations_feedback_and_tool_permissions(environment):
+    client, provider, _, _ = environment
+    workspace_id, owner_headers = create_workspace(client, "contextual-ai@example.com", "contextual-ai")
+    dataset = upload_dataset(
+        client,
+        workspace_id,
+        owner_headers,
+        b"id,name\n1,Ada\n2,Lin\n",
+    )
+    chat = client.post(
+        f"/api/v1/workspaces/{workspace_id}/ai/chat",
+        json={
+            "prompt": "Explain the selected dataset schema",
+            "page_type": "dataset",
+            "active_view": "schema",
+            "dataset_id": dataset["id"],
+        },
+        headers=owner_headers,
+    )
+    assert chat.status_code == 200
+    provider_content = "\n".join(message["content"] for message in provider.messages)
+    assert '"page":{"type":"dataset","active_view":"schema"}' in provider_content
+
+    response = client.post(
+        f"/api/v1/workspaces/{workspace_id}/ai/recommendations",
+        json={"page_type": "dataset", "active_view": "schema", "dataset_id": dataset["id"]},
+        headers=owner_headers,
+    )
+    assert response.status_code == 200, response.text
+    recommendation = response.json()[0]
+    assert recommendation["proposed_action"]["tool"] == "profile_dataset"
+    assert recommendation["evidence"][0]["source"] == "dataset_metadata"
+    assert recommendation["approval_required"] is False
+
+    decision = client.post(
+        f"/api/v1/workspaces/{workspace_id}/ai/recommendations/{recommendation['id']}/feedback",
+        json={"decision": "ACCEPTED"},
+        headers=owner_headers,
+    )
+    assert decision.status_code == 200
+    assert decision.json()["status"] == "ACCEPTED"
+    assert client.get(
+        f"/api/v1/workspaces/{workspace_id}/pipelines",
+        headers=owner_headers,
+    ).json() == []
+    assert client.post(
+        f"/api/v1/workspaces/{workspace_id}/ai/recommendations/{recommendation['id']}/feedback",
+        json={"decision": "REJECTED"},
+        headers=owner_headers,
+    ).status_code == 409
+
+    registered = client.post("/api/v1/auth/register", json={
+        "email": "contextual-viewer@example.com",
+        "password": "a-secure-password",
+        "full_name": "Contextual Viewer",
+    })
+    assert registered.status_code == 201
+    assert client.post("/api/v1/auth/logout", headers=owner_headers).status_code == 204
+    owner_login = client.post("/api/v1/auth/login", json={
+        "email": "contextual-ai@example.com",
+        "password": "a-secure-password",
+    })
+    assert owner_login.status_code == 200
+    owner_headers = {"X-CSRF-Token": client.cookies["pylake_csrf"]}
+    invited = client.post(
+        f"/api/v1/workspaces/{workspace_id}/members",
+        json={"email": "contextual-viewer@example.com", "role": "VIEWER"},
+        headers=owner_headers,
+    )
+    assert invited.status_code == 201
+    assert client.post("/api/v1/auth/logout", headers=owner_headers).status_code == 204
+    assert client.post("/api/v1/auth/login", json={
+        "email": "contextual-viewer@example.com",
+        "password": "a-secure-password",
+    }).status_code == 200
+    viewer_headers = {"X-CSRF-Token": client.cookies["pylake_csrf"]}
+
+    tools = client.get(
+        f"/api/v1/workspaces/{workspace_id}/ai/tools?page_type=catalog",
+        headers=viewer_headers,
+    )
+    assert tools.status_code == 200
+    assert "draft_catalog_metadata" in {tool["name"] for tool in tools.json()}
+    assert client.get(
+        f"/api/v1/workspaces/{workspace_id}/audit",
+        headers=viewer_headers,
+    ).status_code == 403
+    viewer_recommendations = client.post(
+        f"/api/v1/workspaces/{workspace_id}/ai/recommendations",
+        json={"page_type": "audit", "active_view": "events"},
+        headers=viewer_headers,
+    )
+    assert viewer_recommendations.status_code == 200
+    assert viewer_recommendations.json() == []
+    viewer_chat = client.post(
+        f"/api/v1/workspaces/{workspace_id}/ai/chat",
+        json={"prompt": "Summarize recent activity", "page_type": "audit"},
+        headers=viewer_headers,
+    )
+    assert viewer_chat.status_code == 200
+    viewer_provider_content = "\n".join(message["content"] for message in provider.messages)
+    assert '"recent_activity"' not in viewer_provider_content
+    unauthorized_feedback = client.post(
+        f"/api/v1/workspaces/{workspace_id}/ai/recommendations/{recommendation['id']}/feedback",
+        json={"decision": "REJECTED"},
+        headers=viewer_headers,
+    )
+    assert unauthorized_feedback.status_code == 404
+
+
+def test_catalog_asset_context_rejects_cross_workspace_ids(environment):
+    client, _, _, testing_session = environment
+    workspace_id, _ = create_workspace(client, "asset-owner@example.com", "asset-owner")
+    with testing_session() as db:
+        asset = CatalogAsset(
+            workspace_id=UUID(workspace_id),
+            asset_type="TABLE",
+            name="private-table",
+            tags_json=[],
+        )
+        db.add(asset)
+        db.commit()
+        asset_id = str(asset.id)
+
+    other_workspace_id, other_headers = create_workspace(
+        client,
+        "asset-other@example.com",
+        "asset-other",
+    )
+    response = client.post(
+        f"/api/v1/workspaces/{other_workspace_id}/ai/chat",
+        json={
+            "prompt": "Explain this asset",
+            "page_type": "catalog",
+            "catalog_asset_id": asset_id,
+        },
+        headers=other_headers,
+    )
+    assert response.status_code == 404

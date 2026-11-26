@@ -55,36 +55,36 @@ export default function WorkspacesPage() {
     await load();
   };
 
-  if (loading) return <main className="p-8 text-[#98a0b3]">Loading workspace...</main>;
+  if (loading) return <main className="p-8 text-[var(--muted)]">Loading workspace...</main>;
 
   return (
     <main className="min-h-[calc(100vh-64px)] px-4 py-8 md:px-7 lg:px-8">
       <div className="mx-auto max-w-6xl">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm text-[#98a0b3]">{user?.email}</p>
-            <h1 className="mt-1 text-3xl font-semibold">Workspaces</h1>
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-[var(--accent)]">Your data environment</p>
+            <h1 className="mt-1 text-3xl font-semibold tracking-tight">Workspaces</h1>
           </div>
           <button onClick={() => setCreateOpen(true)} className="flex h-10 items-center gap-2 rounded-lg bg-[var(--accent)] px-4 text-sm font-medium text-[var(--accent-foreground)]">
             <Plus size={16} /> New workspace
           </button>
         </div>
 
-        {error && <div className="mt-6 rounded-md border border-red-900 bg-red-950/40 px-4 py-3 text-sm text-red-300">{error}</div>}
+        {error && <div className="mt-6 rounded-lg border border-[color-mix(in_srgb,var(--danger)_35%,transparent)] bg-[color-mix(in_srgb,var(--danger)_8%,var(--surface))] px-4 py-3 text-sm text-[var(--danger)]">{error}</div>}
 
         {workspaces.length === 0 ? (
           <div className="mt-8 rounded-xl border border-dashed border-[var(--border)] bg-[var(--surface)] p-10 text-center">
             <p className="font-medium">No workspaces yet</p>
-            <p className="mt-2 text-sm text-[#98a0b3]">Create your first workspace to organize data and pipelines.</p>
+            <p className="mt-2 text-sm text-[var(--muted)]">Create your first workspace to organize data and pipelines.</p>
           </div>
         ) : (
           <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {workspaces.map((workspace) => (
               <Link key={workspace.id} href={`/workspaces/${workspace.id}`}
-                className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 transition-colors hover:border-[var(--border-strong)]">
+                className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--shadow-soft)] transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)]">
                 <p className="font-medium">{workspace.name}</p>
-                <p className="mt-1 text-sm text-[#98a0b3]">{workspace.slug}</p>
-                {workspace.description && <p className="mt-4 text-sm text-[#98a0b3]">{workspace.description}</p>}
+                <p className="mt-1 text-sm text-[var(--muted)]">{workspace.slug}</p>
+                {workspace.description && <p className="mt-4 text-sm text-[var(--muted)]">{workspace.description}</p>}
               </Link>
             ))}
           </div>
@@ -93,26 +93,26 @@ export default function WorkspacesPage() {
 
       {createOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 px-6">
-          <form onSubmit={create} className="w-full max-w-lg rounded-xl border border-[#303646] bg-[#11141b] p-6">
+          <form onSubmit={create} className="w-full max-w-lg rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] p-6 shadow-[var(--shadow-soft)]">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Create workspace</h2>
               <button type="button" onClick={() => setCreateOpen(false)} aria-label="Close"><X size={18} /></button>
             </div>
             <label className="mt-6 block text-sm">Name
               <input required value={name} onChange={(event) => setName(event.target.value)}
-                className="mt-2 h-11 w-full rounded-md border border-[#303646] bg-[#0b0d12] px-3 outline-none focus:border-[#7dd3fc]" />
+                className="mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 outline-none focus:border-[var(--accent)]" />
             </label>
             <label className="mt-4 block text-sm">Slug
               <input required pattern="[a-z0-9]+(?:-[a-z0-9]+)*" value={slug} onChange={(event) => setSlug(event.target.value.toLowerCase())}
-                className="mt-2 h-11 w-full rounded-md border border-[#303646] bg-[#0b0d12] px-3 outline-none focus:border-[#7dd3fc]" />
+                className="mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 outline-none focus:border-[var(--accent)]" />
             </label>
             <label className="mt-4 block text-sm">Description
               <textarea value={description} onChange={(event) => setDescription(event.target.value)}
-                className="mt-2 min-h-24 w-full rounded-md border border-[#303646] bg-[#0b0d12] p-3 outline-none focus:border-[#7dd3fc]" />
+                className="mt-2 min-h-24 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] p-3 outline-none focus:border-[var(--accent)]" />
             </label>
             <div className="mt-6 flex justify-end gap-3">
-              <button type="button" onClick={() => setCreateOpen(false)} className="h-10 rounded-md px-4 text-sm text-[#98a0b3]">Cancel</button>
-              <button className="h-10 rounded-md bg-[#7dd3fc] px-4 text-sm font-medium text-[#071018]">Create workspace</button>
+              <button type="button" onClick={() => setCreateOpen(false)} className="h-10 rounded-lg px-4 text-sm text-[var(--muted)]">Cancel</button>
+              <button className="h-10 rounded-lg bg-[var(--accent)] px-4 text-sm font-medium text-[var(--accent-foreground)] hover:bg-[var(--accent-strong)]">Create workspace</button>
             </div>
           </form>
         </div>

@@ -30,12 +30,13 @@ The default provider is `disabled`. All adapters use the already-installed `http
 ## Backend components and persistence
 
 - Add AI settings to `Settings`; use disabled-by-default configuration, explicit request/output/context bounds, NVIDIA API key and sampling/thinking controls, provider timeout/retry settings, and a database-backed per-user/workspace rate limit using the existing `RateLimitEvent` mechanism.
-- Add `AIConversation`, `AIMessage`, and `AIUsage` records. Conversation/message foreign keys cascade on workspace or user deletion. Usage records store provider/model, completion status, duration, and provider-reported token counts when available; they do not store prompt/response copies.
-- Add one reversible Alembic revision after `20261125_0008`.
-- Add a workspace context service that retrieves only rows filtered by the supplied workspace ID. It reads dataset/table schemas and counts, layer/version summaries, query execution status metadata, and pipeline status/failure classes. User-selected resource IDs are rechecked against that workspace before use.
+- Persist `AIConversation`, `AIMessage`, `AIUsage`, and `AIRecommendation` records. Recommendation rows retain their evidence, proposed action, risk/permission metadata, and the requesting user's accept/reject decision. Foreign keys cascade on workspace or user deletion.
+- Keep the AI Copilot and recommendation persistence in reversible Alembic revisions after `20261125_0008`; revision `20261127_0010` adds recommendation tracking.
+- Add a workspace context service that retrieves only rows filtered by the supplied workspace ID. It reads dataset/table schemas and counts, layer/version summaries, query execution status metadata, pipeline status/failure classes, bounded cached profile statistics, selected-asset lineage summaries, and (on audit/workspace views only) recent audit action/type/time. Page labels and active views are navigation hints, not authorization inputs; selected resource IDs are rechecked against the workspace before use.
 - Record context access in `AuditLog` with resource categories/counts only; never include message text, schema values, SQL literals, or provider responses in audit metadata.
 - Reuse catalog profiling and Polars for verified statistics. Profiling is bounded to the existing profile row cap; any sample-derived duplicate/anomaly result must be labeled as a sample result. No sample values are included in provider prompts.
-- Expose routes under `/api/v1/workspaces/{workspace_id}/ai` for status, chat/streaming, conversation history/deletion, usage, dataset analysis, SQL generate/explain/debug, and transformation/pipeline drafts.
+- Expose routes under `/api/v1/workspaces/{workspace_id}/ai` for status, chat/streaming, conversation history/deletion, usage, dataset analysis, SQL generate/explain/debug, transformation/pipeline drafts, permission-filtered tool metadata, contextual recommendations, and per-user accept/reject feedback.
+- Use a structured tool registry to declare supported page types, minimum workspace roles, application roles, read-only status, and approval requirements. Recommendations are grounded in server-verified facts and registry entries; accepting or dismissing one records feedback only and does not invoke an operation.
 - Validate generated SQL with `validate_read_only_sql`, then resolve every referenced table through the workspace catalog. Invalid or unknown-table SQL is rejected as a draft; it is never run by AI endpoints.
 - Validate pipeline drafts with Pydantic and `validate_pipeline_graph`, and transformation drafts against the existing transformation operation/configuration allowlist.
 
@@ -47,10 +48,10 @@ All non-streaming generation endpoints use the same provider boundary, context b
 
 ## Frontend integration
 
-- Add a dedicated `/workspaces/[workspaceId]/ai` page and a collapsible assistant panel reachable from the authenticated workspace shell.
+- Add a dedicated `/workspaces/[workspaceId]/ai` page and a collapsible assistant panel reachable from the authenticated workspace shell. The shared panel receives current page/view context and selected dataset, table, pipeline, catalog asset, or SQL state from existing workspace screens.
 - Reuse the current cookie-based API client and CSRF header behavior. Streaming fetches include credentials and the CSRF header; no token is put in browser storage.
 - Show conversation history, suggested prompts, response mode, provider availability, loading/errors, and usage. Render model output as escaped React text; do not insert model-provided HTML.
-- Add contextual entry points for datasets, SQL, and pipeline monitoring that pass only workspace/resource identifiers and a user-approved prompt.
+- Use page-specific prompts and evidence cards across overview, Data Explorer/dataset detail, Lakehouse quality/lineage, SQL Workspace, Pipelines, Catalog, and Audit views. Context remains bounded metadata; complete data rows are not sent.
 - Keep suggestions separate from the existing execution forms. Require an explicit user action before applying a SQL draft, transformation, or pipeline draft through its existing endpoint.
 - Preserve the current authenticated shell, public landing page, theme tokens, responsive layout, and reduced-motion behavior.
 

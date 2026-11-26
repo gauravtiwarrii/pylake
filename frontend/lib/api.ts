@@ -1,4 +1,5 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const DEFAULT_API_URL = process.env.NODE_ENV === "production" ? "" : "http://localhost:8000";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL;
 
 function csrfToken(): string | undefined {
   if (typeof document === "undefined") return undefined;

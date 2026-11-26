@@ -235,15 +235,10 @@ class NvidiaProvider(OpenAICompatibleProvider):
         payload.update({
             "temperature": self.temperature,
             "top_p": self.top_p,
-            "extra_body": {
-                "chat_template_kwargs": {"enable_thinking": self.enable_thinking},
-                **(
-                    {"reasoning_budget": self.reasoning_budget}
-                    if self.enable_thinking
-                    else {}
-                ),
-            },
+            "chat_template_kwargs": {"enable_thinking": self.enable_thinking},
         })
+        if self.enable_thinking:
+            payload["reasoning_budget"] = self.reasoning_budget
         return payload
 
 

@@ -36,14 +36,14 @@ export default function RegisterPage() {
   return (
     <main className="grid min-h-screen place-items-center px-6 bg-[var(--background)]">
       <div className="fixed left-6 top-6 flex items-center gap-2.5">
-        <div className="grid size-8 place-items-center rounded-lg bg-[var(--accent)] text-xs font-bold text-[var(--accent-foreground)]">PL</div>
-        <span className="font-semibold">PyLake</span>
+        <div className="grid size-8 place-items-center rounded-lg border border-[color-mix(in_srgb,var(--accent)_45%,var(--border))] bg-[var(--accent-soft)] text-[11px] font-semibold tracking-wide text-[var(--accent)]">PL</div>
+        <span className="font-semibold tracking-tight">PyLake</span>
       </div>
-      <form onSubmit={submit} className="w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-8 shadow-[0_20px_60px_rgba(0,0,0,.16)]">
+      <form onSubmit={submit} className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--surface)] p-8 shadow-[var(--shadow-soft)]">
         <p className="text-xs font-medium uppercase tracking-[0.18em] text-[var(--accent)]">Get started</p>
         <h1 className="text-2xl font-semibold">Create your account</h1>
         <p className="mt-2 text-sm text-[var(--muted)]">Create and manage data workspaces.</p>
-        {error && <div className="mt-5 rounded-md border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-300">{error}</div>}
+        {error && <div className="mt-5 rounded-lg border border-[color-mix(in_srgb,var(--danger)_35%,transparent)] bg-[color-mix(in_srgb,var(--danger)_8%,var(--surface))] px-3 py-2 text-sm text-[var(--danger)]">{error}</div>}
         <label className="mt-6 block text-sm">Full name
           <input required value={fullName} onChange={(event) => setFullName(event.target.value)}
             className="mt-2 h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] px-3 outline-none focus:border-[var(--accent)]" />
@@ -59,8 +59,8 @@ export default function RegisterPage() {
         <button disabled={loading} className="mt-6 h-11 w-full rounded-lg bg-[var(--accent)] font-medium text-[var(--accent-foreground)] disabled:opacity-60">
           {loading ? "Creating account..." : "Create account"}
         </button>
-        <p className="mt-5 text-center text-sm text-[#98a0b3]">
-          Already have an account? <Link className="text-[#7dd3fc]" href="/login">Sign in</Link>
+        <p className="mt-5 text-center text-sm text-[var(--muted)]">
+          Already have an account? <Link className="text-[var(--accent)] hover:text-[var(--accent-strong)]" href="/login">Sign in</Link>
         </p>
       </form>
     </main>

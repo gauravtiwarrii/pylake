@@ -23,6 +23,7 @@ from app.ai.drafts import (
     validate_transformation_draft,
 )
 from app.ai.prompts import build_chat_messages, build_task_messages
+from app.ai.recommendations import build_recommendations
 from app.ai.providers import (
     AICompletion,
     AIConfigurationError,
@@ -32,6 +33,7 @@ from app.ai.providers import (
     get_provider,
     provider_status,
 )
+from app.ai.tools import available_tools
 from app.api.dependencies import get_current_user
 from app.api.v1.workspaces import membership
 from app.core.audit import record_audit
@@ -41,6 +43,7 @@ from app.core.rate_limit import check_database_rate_limit
 from app.models.entities import (
     AIConversation,
     AIMessage,
+    AIRecommendation,
     AIUsage,
     Dataset,
     User,
@@ -51,6 +54,9 @@ from app.schemas.ai import (
     AIConversationDetailResponse,
     AIConversationResponse,
     AIDatasetAnalysisResponse,
+    AIRecommendationFeedbackRequest,
+    AIRecommendationResponse,
+    AIRecommendationsRequest,
     AIPipelineDraftResponse,
     AIPipelineGenerateRequest,
     AISQLGenerateRequest,
@@ -136,7 +142,7 @@ def _context(
     workspace_id: UUID,
     user: User,
     settings: Settings,
-    **resource_ids: UUID | None,
+    **resource_ids: UUID | str | bool | None,
 ) -> tuple[dict[str, Any], int]:
     try:
         return build_workspace_context(
@@ -247,7 +253,7 @@ def chat(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> StreamingResponse:
-    membership(db, workspace_id, user.id)
+    member = membership(db, workspace_id, user.id)
     prompt = payload.prompt.strip()
     if not prompt:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Message cannot be blank")
@@ -267,8 +273,16 @@ def chat(
         dataset_id=payload.dataset_id,
         table_id=payload.table_id,
         pipeline_id=payload.pipeline_id,
+        catalog_asset_id=payload.catalog_asset_id,
+        page_type=payload.page_type,
+        active_view=payload.active_view,
+        include_audit=member.role.value in {"OWNER", "ADMIN"},
         query_text=payload.sql_text[: min(settings.ai_max_context_chars, settings.ai_max_input_chars // 3)] if payload.sql_text else None,
     )
+    context["available_tools"] = [
+        {"name": tool["name"], "read_only": tool["read_only"], "approval_required": tool["approval_required"]}
+        for tool in available_tools(member.role.value, payload.page_type)
+    ]
 
     conversation = (
         _workspace_conversation(db, workspace_id, user.id, payload.conversation_id)
@@ -372,6 +386,133 @@ def chat(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+def _recommendation_json(item: AIRecommendation) -> dict[str, Any]:
+    return {
+        "id": item.id,
+        "page_type": item.page_type,
+        "category": item.category,
+        "title": item.title,
+        "description": item.description,
+        "evidence": item.evidence_json,
+        "confidence": item.confidence,
+        "expected_impact": item.expected_impact,
+        "proposed_action": item.proposed_action_json,
+        "risk_level": item.risk_level,
+        "required_permissions": item.required_permissions_json,
+        "approval_required": item.approval_required,
+        "status": item.status,
+        "created_at": item.created_at,
+    }
+
+
+@router.get("/{workspace_id}/ai/tools")
+def list_ai_tools(
+    workspace_id: UUID,
+    page_type: str | None = Query(default=None, max_length=30),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[dict[str, object]]:
+    member = membership(db, workspace_id, user.id)
+    return available_tools(member.role.value, page_type)
+
+
+@router.post(
+    "/{workspace_id}/ai/recommendations",
+    response_model=list[AIRecommendationResponse],
+)
+def create_recommendations(
+    workspace_id: UUID,
+    payload: AIRecommendationsRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    member = membership(db, workspace_id, user.id)
+    settings = get_settings()
+    check_database_rate_limit(
+        db,
+        f"{workspace_id}:{user.id}",
+        "ai_recommendations",
+        attempts=settings.ai_rate_limit_requests,
+        window_seconds=settings.ai_rate_limit_window_seconds,
+    )
+    context, resource_count = _context(
+        db,
+        workspace_id,
+        user,
+        settings,
+        dataset_id=payload.dataset_id,
+        table_id=payload.table_id,
+        pipeline_id=payload.pipeline_id,
+        catalog_asset_id=payload.catalog_asset_id,
+        page_type=payload.page_type,
+        active_view=payload.active_view,
+        include_audit=member.role.value in {"OWNER", "ADMIN"},
+        query_text=payload.sql_text[: min(settings.ai_max_context_chars, settings.ai_max_input_chars // 3)] if payload.sql_text else None,
+    )
+    _audit_context(db, workspace_id, user.id, resource_count)
+    recommendations = build_recommendations(context, payload.page_type, member.role.value)
+    rows = [
+        AIRecommendation(
+            workspace_id=workspace_id,
+            user_id=user.id,
+            page_type=payload.page_type,
+            category=item["category"],
+            title=item["title"],
+            description=item["description"],
+            evidence_json=item["evidence"],
+            confidence=item["confidence"],
+            expected_impact=item["expected_impact"],
+            proposed_action_json=item["proposed_action"],
+            risk_level=item["risk_level"],
+            required_permissions_json=item["required_permissions"],
+            approval_required=item["approval_required"],
+        )
+        for item in recommendations
+    ]
+    db.add_all(rows)
+    db.commit()
+    for row in rows:
+        db.refresh(row)
+    return [_recommendation_json(row) for row in rows]
+
+
+@router.post(
+    "/{workspace_id}/ai/recommendations/{recommendation_id}/feedback",
+    response_model=AIRecommendationResponse,
+)
+def record_recommendation_feedback(
+    workspace_id: UUID,
+    recommendation_id: UUID,
+    payload: AIRecommendationFeedbackRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    membership(db, workspace_id, user.id)
+    recommendation = db.query(AIRecommendation).filter(
+        AIRecommendation.id == recommendation_id,
+        AIRecommendation.workspace_id == workspace_id,
+        AIRecommendation.user_id == user.id,
+    ).first()
+    if not recommendation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recommendation not found")
+    if recommendation.status != "PROPOSED":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Recommendation feedback has already been recorded")
+    recommendation.status = payload.decision
+    recommendation.decision_at = utcnow()
+    record_audit(
+        db,
+        workspace_id,
+        user.id,
+        f"AI_RECOMMENDATION_{payload.decision}",
+        "ai_recommendation",
+        recommendation.id,
+        {"tool": recommendation.proposed_action_json.get("tool")},
+    )
+    db.commit()
+    db.refresh(recommendation)
+    return _recommendation_json(recommendation)
 
 
 @router.get("/{workspace_id}/ai/conversations", response_model=list[AIConversationResponse])

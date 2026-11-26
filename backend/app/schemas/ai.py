@@ -8,6 +8,20 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 AIMode = Literal["simple", "detailed", "technical"]
+AIPageType = Literal[
+    "dashboard",
+    "data",
+    "dataset",
+    "lakehouse",
+    "quality",
+    "lineage",
+    "sql",
+    "pipelines",
+    "catalog",
+    "audit",
+    "workspace",
+    "ai",
+]
 
 
 class AIStatusResponse(BaseModel):
@@ -23,7 +37,41 @@ class AIChatRequest(BaseModel):
     dataset_id: UUID | None = None
     table_id: UUID | None = None
     pipeline_id: UUID | None = None
+    catalog_asset_id: UUID | None = None
+    page_type: AIPageType = "ai"
+    active_view: str | None = Field(default=None, max_length=40)
     sql_text: str | None = Field(default=None, max_length=100000)
+
+
+class AIRecommendationsRequest(BaseModel):
+    page_type: AIPageType = "dashboard"
+    active_view: str | None = Field(default=None, max_length=40)
+    dataset_id: UUID | None = None
+    table_id: UUID | None = None
+    pipeline_id: UUID | None = None
+    catalog_asset_id: UUID | None = None
+    sql_text: str | None = Field(default=None, max_length=100000)
+
+
+class AIRecommendationFeedbackRequest(BaseModel):
+    decision: Literal["ACCEPTED", "REJECTED"]
+
+
+class AIRecommendationResponse(BaseModel):
+    id: UUID
+    page_type: AIPageType
+    category: str
+    title: str
+    description: str
+    evidence: list[dict[str, str]]
+    confidence: Literal["LOW", "MEDIUM", "HIGH"]
+    expected_impact: str
+    proposed_action: dict[str, Any]
+    risk_level: Literal["LOW", "MEDIUM", "HIGH"]
+    required_permissions: list[str]
+    approval_required: bool
+    status: Literal["PROPOSED", "ACCEPTED", "REJECTED"]
+    created_at: datetime
 
 
 class AIMessageResponse(BaseModel):

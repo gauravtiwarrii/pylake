@@ -2,6 +2,8 @@
 
 PyLake is a modular, open-source lakehouse platform for ingestion, storage, transformation, SQL analytics, and data pipelines.
 
+> **Beta readiness:** Student Beta v0.1 is not yet cleared for release. See [the readiness and release-gate report](docs/STUDENT_BETA_V0.1.md) and [validation evidence](docs/RELEASE_VALIDATION.md). The Compose configuration is local-development only, not production deployment configuration.
+
 ## Milestone 1 status
 
 The initial repository scaffold includes:
@@ -80,7 +82,9 @@ docker compose up --build
 - Frontend: http://localhost:3000
 - API: http://localhost:8000
 - API docs: http://localhost:8000/docs
-- MinIO console: http://localhost:9001
+- MinIO console: http://localhost:9001 when the optional `minio` profile is enabled
+
+The Compose file starts PostgreSQL, the API, frontend, and pipeline worker. Check `docker compose ps -a` after startup; the worker must remain running for pipeline execution. The checked-in Compose file uses local development credentials and `APP_ENV=local`. Do not expose it publicly or use it for production.
 
 ### Option 2: Run without Docker
 
@@ -96,6 +100,12 @@ python -m uvicorn app.main:app --reload --port 8000
 ```
 
 Set `DATABASE_URL` to a PostgreSQL URL or leave it unset to use SQLite for local development.
+
+## Vercel deployment
+
+The root `vercel.json` deploys the FastAPI backend and Next.js frontend as Vercel services. Requests under `/api/*` are routed to the backend; all other paths go to the frontend. The frontend calls the backend through this same-origin public route, so no service bindings are needed. Leave `NEXT_PUBLIC_API_URL` unset on Vercel; local development continues to use `http://localhost:8000` by default.
+
+Configure production environment variables for the backend, including `APP_ENV=production`, `DATABASE_URL`, `AUTH_SECRET`, and `COOKIE_SECURE=true`. Use a managed PostgreSQL database and durable, remotely accessible object storage; Vercel function filesystems are ephemeral, so do not use local storage for deployed datasets. The pipeline worker is a continuously running process and must be deployed separately with access to the same database and object storage.
 
 ## Milestone 3 data ingestion
 
@@ -314,3 +324,43 @@ cd frontend
 npm install
 npm run dev
 ```
+
+## Milestone 9 AI Copilot
+
+The optional workspace-aware Copilot supports streamed chat, dataset profiling, SQL explanation/debugging, and validated SQL, transformation, and pipeline drafts. AI is disabled by default. Generated SQL is validated as read-only and is never executed by the Copilot; transformation and pipeline suggestions are returned as drafts and are never applied or run automatically.
+
+The provider is configured on the backend, not in the browser. Supported providers are OpenAI-compatible chat-completion APIs and Ollama. Configure `AI_PROVIDER`, `AI_MODEL`, and, for an OpenAI-compatible provider, `AI_API_KEY`; use `AI_BASE_URL` for a compatible endpoint or an Ollama server. Keep credentials server-side and never commit real values. The full environment reference and setup steps are in [the AI Copilot setup guide](docs/AI_COPILOT_SETUP.md).
+
+Workspace conversations, messages, and request usage metadata are stored in the application database. Context is membership-scoped and limited to workspace names, dataset/table schemas and counts, pipeline status, query status metadata, and the current SQL after literal redaction. Dataset profile explanations use aggregate statistics only; raw dataset rows and storage keys are not sent as chat context. Provider requests are external when an external provider is configured; review [the AI Copilot security guide](docs/AI_COPILOT_SECURITY.md) before enabling it.
+
+### Database migration
+
+After configuring `DATABASE_URL`, apply the reversible AI persistence migration:
+
+```powershell
+cd backend
+.\.venv\Scripts\alembic.exe upgrade head
+```
+
+The migration adds `ai_conversations`, `ai_messages`, and `ai_usage`. To reverse the latest migration during development:
+
+```powershell
+.\.venv\Scripts\alembic.exe downgrade 20261125_0008
+```
+
+### AI API
+
+- `GET /api/v1/workspaces/{workspace_id}/ai/status`
+- `POST /api/v1/workspaces/{workspace_id}/ai/chat` (server-sent events)
+- `GET /api/v1/workspaces/{workspace_id}/ai/conversations`
+- `GET /api/v1/workspaces/{workspace_id}/ai/conversations/{conversation_id}`
+- `DELETE /api/v1/workspaces/{workspace_id}/ai/conversations/{conversation_id}`
+- `GET /api/v1/workspaces/{workspace_id}/ai/usage`
+- `POST /api/v1/workspaces/{workspace_id}/ai/datasets/{dataset_id}/analyze`
+- `POST /api/v1/workspaces/{workspace_id}/ai/sql/generate`
+- `POST /api/v1/workspaces/{workspace_id}/ai/sql/explain`
+- `POST /api/v1/workspaces/{workspace_id}/ai/sql/debug`
+- `POST /api/v1/workspaces/{workspace_id}/ai/transformations/generate`
+- `POST /api/v1/workspaces/{workspace_id}/ai/pipelines/generate`
+
+The Copilot is available from the workspace sidebar at `/workspaces/{workspaceId}/ai`, from the collapsible application-shell panel, and through contextual actions in Data Explorer, SQL Workspace, and Pipelines. See [the user guide](docs/AI_COPILOT_USER_GUIDE.md) for interaction details.

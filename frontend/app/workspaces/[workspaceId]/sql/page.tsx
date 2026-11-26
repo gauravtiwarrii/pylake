@@ -29,6 +29,7 @@ import {
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { useTheme } from "@/components/theme-provider";
+import { useAIPageContext } from "@/components/ai-page-context";
 
 const Editor = dynamic(() => import("@monaco-editor/react"), { ssr: false });
 
@@ -121,6 +122,7 @@ export default function SqlWorkspacePage({
   const [saved, setSaved] = useState<SavedQuery[]>([]);
   const [role, setRole] = useState<Role | null>(null);
   const [sql, setSql] = useState(initialSql);
+  const [aiSqlText, setAiSqlText] = useState(initialSql);
   const [result, setResult] = useState<SqlResult | null>(null);
   const [selectedSavedId, setSelectedSavedId] = useState<string | null>(null);
   const [panel, setPanel] = useState<ExplorerPanel>("catalog");
@@ -142,6 +144,11 @@ export default function SqlWorkspacePage({
   const executeRef = useRef<() => Promise<void>>(async () => {});
   const openSaveDialogRef = useRef<(saveAsNew?: boolean, query?: SavedQuery) => void>(() => {});
   const dragOriginRef = useRef<DragOrigin | null>(null);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setAiSqlText(sql), 250);
+    return () => window.clearTimeout(timeout);
+  }, [sql]);
+  useAIPageContext({ page_type: "sql", active_view: "editor", sql_text: aiSqlText });
 
   const selectedSaved = useMemo(
     () => saved.find((item) => item.id === selectedSavedId) ?? null,

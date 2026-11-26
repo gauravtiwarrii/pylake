@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
+import { useAIPageContext } from "@/components/ai-page-context";
 
 type Layer = "BRONZE" | "SILVER" | "GOLD";
 type Role = "OWNER" | "ADMIN" | "EDITOR" | "VIEWER";
@@ -144,9 +145,9 @@ function prettyValue(value: unknown) {
 }
 
 function layerColor(layer: Layer) {
-  if (layer === "BRONZE") return "var(--warning)";
-  if (layer === "SILVER") return "var(--accent)";
-  return "var(--success)";
+  if (layer === "BRONZE") return "var(--layer-bronze)";
+  if (layer === "SILVER") return "var(--layer-silver)";
+  return "var(--layer-gold)";
 }
 
 export default function LakehousePage({ params }: { params: Promise<{ workspaceId: string }> }) {
@@ -193,6 +194,11 @@ export default function LakehousePage({ params }: { params: Promise<{ workspaceI
   const requestId = useRef(0);
   const detailRequestId = useRef(0);
   const qualityRequestId = useRef(0);
+  useAIPageContext({
+    page_type: tab === "quality" ? "quality" : tab === "lineage" ? "lineage" : "lakehouse",
+    table_id: selected?.id,
+    active_view: tab,
+  });
 
   const canWrite = role === "OWNER" || role === "ADMIN" || role === "EDITOR";
   const activeVersion = versions.find((version) => version.id === activeVersionId) ?? null;

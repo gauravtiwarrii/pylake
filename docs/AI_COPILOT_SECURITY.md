@@ -5,14 +5,15 @@
 - AI APIs require the existing authenticated session and CSRF protections.
 - Every endpoint checks workspace membership before reading or writing Copilot data.
 - Conversations are scoped to both the workspace and the user. Conversation IDs are not sufficient to access another user's history.
-- Dataset, table, and pipeline context is queried only within the authorized workspace.
+- Dataset, table, pipeline, and catalog-asset context is queried only within the authorized workspace. Browser-supplied page labels and active views do not grant access.
 - Context reads are recorded as `AI_CONTEXT_ACCESSED` audit events without recording prompts or conversation contents.
+- Audit-event context is included only for OWNER/ADMIN members, matching the existing audit API. Recommendation feedback is scoped to the authenticated user and workspace; another member cannot read or change a user's decision record. The tool list exposes catalog metadata drafting as read-only and records that applying it requires editor permission.
 
 ## Provider boundary and privacy
 
 When enabled, the current user prompt, prior messages in that user's selected conversation, and bounded workspace context are sent from the backend to the configured provider. Provider credentials and base URLs stay server-side and are never returned by status or error responses. NVIDIA authentication uses `NVIDIA_API_KEY`; it must not be exposed through `NEXT_PUBLIC_*`, logs, or browser storage.
 
-Chat context can include workspace names; dataset/table names, formats, ingestion status, row and column counts, and schema names/types; recent pipeline status; and query execution status/duration/result-count metadata. A user-supplied SQL string is parsed and SQL literals/comments are redacted before it is included in context. SQL supplied for explanation/debugging is also bounded.
+Chat context can include workspace names; dataset/table names, formats, ingestion status, row and column counts, and schema names/types; recent pipeline status; query execution status/duration/result-count metadata; bounded cached profile statistics; selected-asset lineage relationship types; and recent audit action/type/time on authorized audit views. A user-supplied SQL string is parsed and SQL literals/comments are redacted before it is included in context. SQL supplied for explanation/debugging is also bounded.
 
 Chat context does not include raw dataset rows, storage object keys, credentials, query-history SQL, or query error content. Dataset profiling reads a bounded 10,000-row sample on the backend and sends aggregate statistics only to the provider; the profile response identifies sample-based duplicate and outlier results. Provider usage and duration are persisted, but prompts and provider response bodies are not copied into audit metadata.
 
@@ -26,7 +27,8 @@ For NVIDIA Nemotron, the provider adapter deliberately ignores `reasoning_conten
 - SQL drafts must pass the existing read-only SQL validator and workspace catalog resolver. The AI API does not execute them or create SQL history records.
 - Transformation drafts are parsed against existing transformation schemas and validated against workspace columns and layers. They are suggestions only.
 - Pipeline drafts are validated against existing graph rules, supported step types, workspace resources, and read-only SQL restrictions. They are returned with `DRAFT` status and are not persisted or run by the AI API.
-- Users must explicitly review and apply any suggestion through the existing product workflows.
+- Recommendations include their evidence, confidence, expected impact, risk, required role, and approval requirement. Accept/reject feedback is persisted for tracking only; it does not apply or execute the proposed action.
+- The AI tool registry exposes proposal/draft capabilities, not mutation executors. Users must review drafts and explicitly apply any change through existing product workflows, which remain authoritative for permissions and validation.
 
 ## Abuse and resource limits
 

@@ -1,8 +1,10 @@
 "use client";
 
-import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { api, streamApi } from "@/lib/api";
+import { type AIPageContextValue, pageTypeFromPath } from "@/components/ai-page-context";
 
 type Conversation = {
   id: string;
@@ -16,11 +18,21 @@ type Message = {
   content: string;
 };
 
-type Context = {
-  dataset_id?: string;
-  table_id?: string;
-  pipeline_id?: string;
-  sql_text?: string;
+type Context = Omit<AIPageContextValue, "pathname">;
+
+type Recommendation = {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  evidence: { source: string; detail: string }[];
+  confidence: "LOW" | "MEDIUM" | "HIGH";
+  expected_impact: string;
+  proposed_action: { tool: string; arguments: Record<string, unknown> };
+  risk_level: "LOW" | "MEDIUM" | "HIGH";
+  required_permissions: string[];
+  approval_required: boolean;
+  status: "PROPOSED" | "ACCEPTED" | "REJECTED";
 };
 
 type Draft = {
@@ -34,7 +46,21 @@ type Props = {
   workspaceId: string;
   compact?: boolean;
   onClose?: () => void;
+  pageContext?: AIPageContextValue;
 };
+
+function subscribeToSearchString(onChange: () => void) {
+  window.addEventListener("popstate", onChange);
+  return () => window.removeEventListener("popstate", onChange);
+}
+
+function getSearchString() {
+  return typeof window === "undefined" ? "" : window.location.search;
+}
+
+function getServerSearchString() {
+  return "";
+}
 
 function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
   return text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*\n]+\*)/g).map((part, index) => {
@@ -124,7 +150,14 @@ function renderAssistantMarkdown(content: string): ReactNode[] {
   return blocks;
 }
 
-export function AICopilotChat({ workspaceId, compact = false, onClose }: Props) {
+export function AICopilotChat({ workspaceId, compact = false, onClose, pageContext }: Props) {
+  const pathname = usePathname();
+  const searchString = useSyncExternalStore(
+    subscribeToSearchString,
+    getSearchString,
+    getServerSearchString,
+  );
+  const searchParams = new URLSearchParams(searchString);
   const [status, setStatus] = useState<{ configured: boolean; provider: string; model: string } | null>(null);
   const [usage, setUsage] = useState<{ requests: number; input_tokens: number; output_tokens: number; tokens_reported: boolean } | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -139,35 +172,84 @@ export function AICopilotChat({ workspaceId, compact = false, onClose }: Props) 
   const [draft, setDraft] = useState<Draft | null>(null);
   const [retryPrompt, setRetryPrompt] = useState("");
   const [copiedMessageId, setCopiedMessageId] = useState("");
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false);
+  const [recommendationError, setRecommendationError] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<AbortController | null>(null);
-  const [context, setContext] = useState<Context>({});
+  const queryDatasetId = searchParams.get("dataset_id") || undefined;
+  const queryTableId = searchParams.get("table_id") || undefined;
+  const queryPipelineId = searchParams.get("pipeline_id") || undefined;
+  const querySql = searchParams.get("sql_text") || undefined;
+  const queryPageType = queryDatasetId
+    ? "dataset"
+    : queryTableId
+      ? "lakehouse"
+      : queryPipelineId
+        ? "pipelines"
+        : querySql
+          ? "sql"
+          : undefined;
+  const context: Context = {
+    page_type: pageContext?.page_type && pageContext.page_type !== "ai"
+      ? pageContext.page_type
+      : queryPageType ?? pageContext?.page_type ?? pageTypeFromPath(pathname),
+    active_view: pageContext?.active_view,
+    dataset_id: pageContext?.dataset_id || queryDatasetId,
+    table_id: pageContext?.table_id || queryTableId,
+    pipeline_id: pageContext?.pipeline_id || queryPipelineId,
+    catalog_asset_id: pageContext?.catalog_asset_id || searchParams.get("catalog_asset_id") || undefined,
+    sql_text: pageContext?.sql_text || querySql,
+  };
+
+  const loadRecommendations = useCallback(async () => {
+    setRecommendationsLoading(true);
+    setRecommendationError("");
+    const result = await api<Recommendation[]>(
+      `/api/v1/workspaces/${workspaceId}/ai/recommendations`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          page_type: context.page_type,
+          dataset_id: context.dataset_id,
+          table_id: context.table_id,
+          pipeline_id: context.pipeline_id,
+          catalog_asset_id: context.catalog_asset_id,
+        }),
+      },
+    );
+    setRecommendationsLoading(false);
+    if (result.error) setRecommendationError(result.error);
+    else setRecommendations(result.data ?? []);
+  }, [
+    workspaceId,
+    setRecommendationsLoading,
+    setRecommendationError,
+    setRecommendations,
+    context.page_type,
+    context.dataset_id,
+    context.table_id,
+    context.pipeline_id,
+    context.catalog_asset_id,
+  ]);
 
   useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      const params = new URLSearchParams(window.location.search);
-      setContext({
-        dataset_id: params.get("dataset_id") || undefined,
-        table_id: params.get("table_id") || undefined,
-        pipeline_id: params.get("pipeline_id") || undefined,
-        sql_text: params.get("sql_text") || undefined,
-      });
-    }, 0);
+    const timeout = window.setTimeout(() => void loadRecommendations(), 0);
     return () => window.clearTimeout(timeout);
-  }, []);
+  }, [loadRecommendations]);
 
   const loadConversations = useCallback(async () => {
     const result = await api<Conversation[]>(`/api/v1/workspaces/${workspaceId}/ai/conversations`);
     if (result.error) setError(result.error);
     else setConversations(result.data ?? []);
-  }, [workspaceId]);
+  }, [workspaceId, setError, setConversations]);
 
   const loadUsage = useCallback(async () => {
     const result = await api<{ requests: number; input_tokens: number; output_tokens: number; tokens_reported: boolean }>(
       `/api/v1/workspaces/${workspaceId}/ai/usage`,
     );
     if (result.data) setUsage(result.data);
-  }, [workspaceId]);
+  }, [workspaceId, setUsage]);
 
   useEffect(() => {
     let active = true;
@@ -326,6 +408,25 @@ export function AICopilotChat({ workspaceId, compact = false, onClose }: Props) 
     }
   };
 
+  const recordRecommendationDecision = async (
+    recommendation: Recommendation,
+    decision: "ACCEPTED" | "REJECTED",
+  ) => {
+    const result = await api<Recommendation>(
+      `/api/v1/workspaces/${workspaceId}/ai/recommendations/${recommendation.id}/feedback`,
+      {
+        method: "POST",
+        body: JSON.stringify({ decision }),
+      },
+    );
+    if (result.error) setRecommendationError(result.error);
+    else {
+      setRecommendations((current) => current.map((item) =>
+        item.id === recommendation.id ? result.data ?? item : item,
+      ));
+    }
+  };
+
   const runDraftAction = async (kind: "profile" | "sql" | "transformation" | "pipeline") => {
     if (drafting) return;
     setError("");
@@ -423,6 +524,68 @@ export function AICopilotChat({ workspaceId, compact = false, onClose }: Props) 
               )}
             </div>
           )}
+          {recommendationError && (
+            <p role="status" className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs text-[var(--muted)]">
+              Contextual suggestions are unavailable: {recommendationError}
+            </p>
+          )}
+          {(recommendationsLoading || recommendations.length > 0) && (
+            <section aria-label="Contextual recommendations" className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h2 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted)]">Grounded recommendations</h2>
+                {recommendationsLoading && <span className="text-[10px] text-[var(--muted)]">Checking context...</span>}
+              </div>
+              {recommendations.map((recommendation) => (
+                <article key={recommendation.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="text-xs font-semibold">{recommendation.title}</h3>
+                    <span className="shrink-0 rounded-full border border-[var(--border)] px-2 py-0.5 text-[9px] text-[var(--muted)]">
+                      {recommendation.risk_level} risk
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] leading-5 text-[var(--muted)]">{recommendation.description}</p>
+                  <ul className="mt-2 space-y-1">
+                    {recommendation.evidence.map((item, index) => (
+                      <li key={`${item.source}-${index}`} className="text-[10px] leading-4 text-[var(--muted)]">
+                        <span className="font-medium text-[var(--foreground)]">{item.source}:</span> {item.detail}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-[10px] text-[var(--muted)]">
+                    {recommendation.expected_impact} · Confidence: {recommendation.confidence}
+                    {recommendation.approval_required ? " · Review and explicit approval required before applying" : ""}
+                  </p>
+                  <p className="mt-1 text-[9px] text-[var(--muted)]">
+                    Suggested capability: {recommendation.proposed_action.tool}
+                    {recommendation.required_permissions.length
+                      ? ` · Applying requires ${recommendation.required_permissions.join(", ")}`
+                      : ""}
+                  </p>
+                  {recommendation.status === "PROPOSED" ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void recordRecommendationDecision(recommendation, "ACCEPTED")}
+                        className="rounded border border-[var(--border-strong)] px-2 py-1 text-[9px] hover:border-[var(--accent)]"
+                      >
+                        Accept suggestion
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void recordRecommendationDecision(recommendation, "REJECTED")}
+                        className="rounded border border-[var(--border)] px-2 py-1 text-[9px] text-[var(--muted)] hover:text-[var(--foreground)]"
+                      >
+                        Dismiss
+                      </button>
+                      <span className="text-[9px] text-[var(--muted)]">Recording a decision does not run an action.</span>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-[9px] text-[var(--muted)]">Decision recorded: {recommendation.status.toLowerCase()}.</p>
+                  )}
+                </article>
+              ))}
+            </section>
+          )}
           {messages.length === 0 && (
             <div className="rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--surface)] px-5 py-8 text-center">
               <p className="text-sm font-medium">What would you like to understand?</p>
@@ -430,11 +593,23 @@ export function AICopilotChat({ workspaceId, compact = false, onClose }: Props) 
                 Ask about authorized workspace metadata, profile a dataset, or request a SQL or pipeline draft. Suggestions are never executed automatically.
               </p>
               <div className="mt-4 flex flex-wrap justify-center gap-2">
-                {(context.sql_text
-                  ? ["Explain this SQL", "Help debug this SQL"]
-                  : context.dataset_id
-                    ? ["Summarize this dataset", "Suggest data-quality checks"]
-                    : ["Summarize this workspace", "Which tables are available?"]
+                {(context.page_type === "sql"
+                  ? ["Explain the current SQL", "Help debug this query"]
+                  : context.page_type === "pipelines"
+                    ? ["Diagnose the latest pipeline failure", "Explain this pipeline's steps"]
+                    : context.page_type === "quality"
+                      ? ["Explain these quality metrics", "Suggest safe cleaning checks"]
+                      : context.page_type === "lineage"
+                        ? ["Explain upstream and downstream dependencies", "What impact could a schema change have?"]
+                        : context.page_type === "catalog"
+                          ? ["Explain this asset's schema", "Improve its catalog description"]
+                          : context.page_type === "audit"
+                            ? ["Summarize recent workspace activity", "Explain these audit actions"]
+                            : context.dataset_id
+                              ? ["Summarize this dataset", "Suggest data-quality checks"]
+                              : context.page_type === "dashboard"
+                                ? ["Summarize workspace health", "What should I review next?"]
+                                : ["Summarize this workspace", "Which tables are available?"]
                 ).map((suggestion) => (
                   <button key={suggestion} onClick={() => setPrompt(suggestion)} className="rounded-full border border-[var(--border)] px-3 py-1.5 text-[10px] text-[var(--muted)] hover:border-[var(--border-strong)] hover:text-[var(--foreground)]">
                     {suggestion}

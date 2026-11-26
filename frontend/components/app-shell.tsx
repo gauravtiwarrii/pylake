@@ -25,6 +25,10 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { useTheme } from "@/components/theme-provider";
 import { AICopilotChat } from "@/components/ai-copilot-chat";
+import {
+  AIPageContextProvider,
+  useCurrentAIPageContext,
+} from "@/components/ai-page-context";
 
 type Workspace = {
   id: string;
@@ -46,8 +50,17 @@ const navigation = [
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  return (
+    <AIPageContextProvider>
+      <AppShellContent>{children}</AppShellContent>
+    </AIPageContextProvider>
+  );
+}
+
+function AppShellContent({ children }: { children: React.ReactNode }) {
   const { user, loading, refresh } = useAuth();
   const pathname = usePathname();
+  const aiPageContext = useCurrentAIPageContext(pathname);
   const router = useRouter();
   const { theme, setTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
@@ -108,14 +121,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         />
       )}
       <aside
-        className={`fixed bottom-0 left-0 top-0 z-50 flex flex-col border-r border-[var(--border)] bg-[var(--surface)] transition-[width,transform] duration-200 ${
+        className={`fixed bottom-0 left-0 top-0 z-50 flex flex-col border-r border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-soft)] transition-[width,transform] duration-200 motion-reduce:transition-none ${
           collapsed ? "w-[72px]" : "w-[248px]"
         } ${mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
       >
         <div className={`flex h-16 items-center border-b border-[var(--border)] ${collapsed ? "justify-center" : "justify-between px-4"}`}>
           <Link href="/workspaces" className="flex items-center gap-2.5" aria-label="PyLake workspaces">
-            <div className="grid size-8 shrink-0 place-items-center rounded-lg bg-[var(--accent)] text-xs font-bold text-[var(--accent-foreground)]">PL</div>
-            {!collapsed && <span className="text-[15px] font-semibold tracking-tight">PyLake</span>}
+            <div className="grid size-8 shrink-0 place-items-center rounded-lg border border-[color-mix(in_srgb,var(--accent)_45%,var(--border))] bg-[var(--accent-soft)] text-[11px] font-semibold tracking-wide text-[var(--accent)]">PL</div>
+            {!collapsed && <span className="text-[15px] font-semibold tracking-tight">PyLake<span className="ml-2 text-[9px] font-medium uppercase tracking-[0.18em] text-[var(--muted)]">Lakehouse</span></span>}
           </Link>
           {!collapsed && (
             <button className="hidden size-8 place-items-center rounded-md text-[var(--muted)] hover:bg-[var(--surface-hover)] lg:grid" onClick={() => setCollapsed(true)} aria-label="Collapse sidebar">
@@ -128,7 +141,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="relative px-2 py-3">
             <button
               onClick={() => setWorkspaceMenu((value) => !value)}
-              className={`flex h-10 w-full items-center rounded-md border border-[var(--border)] bg-[var(--surface-raised)] ${collapsed ? "justify-center" : "justify-between px-3"}`}
+              className={`flex h-10 w-full items-center rounded-lg border border-[var(--border)] bg-[var(--surface-raised)] hover:border-[var(--border-strong)] ${collapsed ? "justify-center" : "justify-between px-3"}`}
             >
               {!collapsed && (
                 <>
@@ -179,7 +192,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   title={collapsed ? item.label : undefined}
                   className={`mb-1 flex h-9 items-center rounded-md text-sm transition-colors ${collapsed ? "justify-center" : "gap-3 px-3"} ${
                     active
-                      ? "bg-[var(--surface-hover)] text-[var(--foreground)]"
+                      ? "bg-[var(--accent-soft)] text-[var(--foreground)]"
                       : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
                   }`}
                 >
@@ -238,7 +251,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
             <div className="relative">
               <button onClick={() => setUserMenu((value) => !value)} className="ml-1 flex h-9 items-center gap-2 rounded-md px-1.5 hover:bg-[var(--surface-hover)]">
-                <div className="grid size-7 place-items-center rounded-full bg-[var(--surface-hover)] text-xs font-semibold">{user.full_name?.slice(0, 1).toUpperCase()}</div>
+                <div className="grid size-7 place-items-center rounded-full border border-[color-mix(in_srgb,var(--accent)_35%,var(--border))] bg-[var(--accent-soft)] text-xs font-semibold text-[var(--accent)]">{user.full_name?.slice(0, 1).toUpperCase()}</div>
               </button>
               {userMenu && (
                 <div className="absolute right-0 top-11 w-56 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 shadow-xl">
@@ -263,7 +276,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <button onClick={() => setAiPanelOpen(false)} aria-label="Close AI Copilot" className="text-xs text-[var(--muted)] hover:text-[var(--foreground)]">Close</button>
             </div>
           </div>
-          <AICopilotChat workspaceId={workspaceId} compact />
+          <AICopilotChat workspaceId={workspaceId} compact pageContext={aiPageContext} />
         </section>
       )}
     </div>

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { api, API_URL } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
+import { useAIPageContext } from "@/components/ai-page-context";
 
 type Dataset = {
   id: string;
@@ -94,6 +95,11 @@ export default function DataExplorerPage({ params }: { params: Promise<{ workspa
   const [detailTab, setDetailTab] = useState<"overview" | "preview" | "schema">("overview");
   const [canManage, setCanManage] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  useAIPageContext({
+    page_type: selected ? "dataset" : "data",
+    dataset_id: selected?.id,
+    active_view: selected ? detailTab : "list",
+  });
 
   const load = useCallback(async () => {
     setLoading(true);

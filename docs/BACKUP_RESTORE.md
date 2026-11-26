@@ -55,7 +55,7 @@ Record checksums for the copied object archive before restore.
 
 ## Restore
 
-Restore objects first, then metadata. Do not restore over an active database or object bucket.
+Restore objects first, then metadata. Stop all API and worker processes before restoring. Never restore over an active database or object bucket. Prefer restoring into an isolated environment first and verify dataset versions resolve to their stored objects.
 
 PostgreSQL:
 
@@ -66,7 +66,7 @@ pg_restore --clean --if-exists --dbname="$env:DATABASE_URL" pylake.metadata.dump
 SQLite:
 
 ```powershell
-Copy-Item pylake.db pylake.db.backup
+Copy-Item -LiteralPath pylake.db.backup -Destination pylake.db -Force
 ```
 
 MinIO:
@@ -75,4 +75,4 @@ MinIO:
 mc mirror ./pylake-storage-backup minio/pylake
 ```
 
-After restore, run migrations and verify dataset versions resolve to existing storage keys.
+After restore, run migrations and verify dataset versions resolve to existing storage keys. A successful SQLite `PRAGMA integrity_check` only verifies database-file consistency; it does not verify that external objects exist or that the application can use the restored data.

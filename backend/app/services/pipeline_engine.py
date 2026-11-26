@@ -34,6 +34,14 @@ def utcnow():
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def elapsed_milliseconds(started_at: datetime, completed_at: datetime) -> int:
+    if started_at.tzinfo is None:
+        started_at = started_at.replace(tzinfo=timezone.utc)
+    if completed_at.tzinfo is None:
+        completed_at = completed_at.replace(tzinfo=timezone.utc)
+    return int((completed_at - started_at).total_seconds() * 1000)
+
+
 class PipelineStepTimeoutError(TimeoutError):
     pass
 
@@ -204,6 +212,7 @@ def execute_pipeline_run(run_id: uuid.UUID) -> None:
                 step_run.duration_ms = int((time.perf_counter() - started) * 1000)
                 db.commit()
 
+        retry_scheduled = False
         if execution_failed:
             settings = get_settings()
             if run.retry_count < run.max_retries:
@@ -225,6 +234,7 @@ def execute_pipeline_run(run_id: uuid.UUID) -> None:
                     if step_run.status == StepStatus.SKIPPED:
                         step_run.status = StepStatus.PENDING
                 run.duration_ms = None
+                retry_scheduled = True
             else:
                 run.status = RunStatus.FAILED
                 run.failure_class = "STEP_FAILURE"
@@ -232,8 +242,11 @@ def execute_pipeline_run(run_id: uuid.UUID) -> None:
         else:
             run.status = RunStatus.SUCCEEDED
             run.error_message = None
-        run.completed_at = utcnow()
-        run.duration_ms = int((run.completed_at - run.started_at).total_seconds() * 1000)
+        if retry_scheduled:
+            run.completed_at = None
+        else:
+            run.completed_at = utcnow()
+            run.duration_ms = elapsed_milliseconds(run.started_at, run.completed_at)
         db.commit()
     finally:
         db.close()
@@ -247,7 +260,11 @@ def execute_step(db, run_id: uuid.UUID, workspace_id: uuid.UUID, user_id: uuid.U
         dataset_id = config.get("dataset_id")
         if not dataset_id:
             raise ValueError("SOURCE_DATASET requires dataset_id")
-        dataset = db.query(Dataset).filter(Dataset.id == dataset_id, Dataset.workspace_id == workspace_id).first()
+        try:
+            dataset_uuid = uuid.UUID(str(dataset_id))
+        except (ValueError, TypeError, AttributeError) as error:
+            raise ValueError("SOURCE_DATASET requires a valid dataset_id") from error
+        dataset = db.query(Dataset).filter(Dataset.id == dataset_uuid, Dataset.workspace_id == workspace_id).first()
         if not dataset:
             raise ValueError("Dataset not found in workspace")
         if not storage.exists(dataset.storage_key):

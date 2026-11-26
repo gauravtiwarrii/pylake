@@ -18,7 +18,7 @@ For `ollama`, `AI_BASE_URL` is the server URL: the adapter appends `/api/chat`. 
 
 ### NVIDIA Nemotron
 
-The NVIDIA adapter reuses the existing HTTP provider boundary; it does not add an SDK or a separate chat endpoint. It sends `temperature`, `top_p`, `max_tokens`, and the NVIDIA `extra_body` options for thinking. It reads only assistant `content` from responses. `reasoning_content` is intentionally ignored and is never sent to the frontend, saved as a conversation message, or written to usage records.
+The NVIDIA adapter reuses the existing HTTP provider boundary; it does not add an SDK or a separate chat endpoint. It sends `temperature`, `top_p`, `max_tokens`, `chat_template_kwargs`, and (when thinking is enabled) `reasoning_budget` in the request body. It reads only assistant `content` from responses. `reasoning_content` is intentionally ignored and is never sent to the frontend, saved as a conversation message, or written to usage records.
 
 Configure these values in the backend environment:
 

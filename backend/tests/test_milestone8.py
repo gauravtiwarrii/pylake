@@ -1,5 +1,6 @@
 import io
 import tempfile
+from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,8 +11,11 @@ from sqlalchemy.pool import StaticPool
 import app.api.v1.datasets as dataset_api
 import app.api.v1.lakehouse as lakehouse_api
 import app.api.v1.catalog as catalog_api
+import app.api.v1.sql as sql_api
+import app.services.pipeline_engine as pipeline_engine
 from app.core.db import Base, get_db
 from app.main import app
+from app.models.entities import PipelineRun
 from app.storage.local import LocalFileStorage
 
 
@@ -35,6 +39,9 @@ def environment(monkeypatch):
     monkeypatch.setattr(dataset_api, "get_storage", lambda: storage)
     monkeypatch.setattr(lakehouse_api, "get_storage", lambda: storage)
     monkeypatch.setattr(catalog_api, "get_storage", lambda: storage)
+    monkeypatch.setattr(sql_api, "get_storage", lambda: storage)
+    monkeypatch.setattr(pipeline_engine, "get_storage", lambda: storage)
+    monkeypatch.setattr(pipeline_engine, "SessionLocal", TestingSession)
 
     with TestClient(app) as client:
         yield client, storage
@@ -163,3 +170,90 @@ def test_catalog_search_filter_pagination_and_cross_workspace(environment):
         headers=other_headers,
     )
     assert catalog.status_code == 404
+
+
+def test_upload_pipeline_worker_gold_materialization_and_sql(environment):
+    client, _ = environment
+    workspace_id, headers = login_workspace(client, "pipeline-e2e@example.com", "pipeline-e2e")
+    upload = client.post(
+        f"/api/v1/workspaces/{workspace_id}/datasets/upload",
+        files={"file": ("customers.csv", b"id,name,score\n1,Ada,10\n2,Lin,20\n", "text/csv")},
+        data={"name": "customers"},
+        headers=headers,
+    )
+    assert upload.status_code == 201
+    dataset_id = upload.json()["id"]
+
+    tables = client.get(
+        f"/api/v1/workspaces/{workspace_id}/lakehouse/tables",
+        headers=headers,
+    ).json()
+    table = next(item for item in tables if item["name"] == "customers")
+    promoted = client.post(
+        f"/api/v1/workspaces/{workspace_id}/lakehouse/tables/{table['id']}/promote",
+        json={"target_layer": "SILVER"},
+        headers=headers,
+    )
+    assert promoted.status_code == 200
+
+    pipeline = client.post(
+        f"/api/v1/workspaces/{workspace_id}/pipelines",
+        json={
+            "name": "Customer Gold materialization",
+            "steps": [
+                {
+                    "step_key": "source",
+                    "name": "Validate source",
+                    "step_type": "SOURCE_DATASET",
+                    "configuration": {"dataset_id": dataset_id},
+                    "execution_order": 1,
+                },
+                {
+                    "step_key": "materialize",
+                    "name": "Create Gold version",
+                    "step_type": "MATERIALIZE",
+                    "configuration": {"table_name": "customers", "target_layer": "GOLD"},
+                    "dependencies": ["source"],
+                    "execution_order": 2,
+                },
+            ],
+        },
+        headers=headers,
+    )
+    assert pipeline.status_code == 201, pipeline.text
+    pipeline_id = pipeline.json()["id"]
+
+    accepted = client.post(
+        f"/api/v1/workspaces/{workspace_id}/pipelines/{pipeline_id}/runs",
+        headers=headers,
+    )
+    assert accepted.status_code == 202
+    run_id = accepted.json()["id"]
+    with pipeline_engine.SessionLocal() as db:
+        db.get(PipelineRun, UUID(run_id)).max_retries = 0
+        db.commit()
+    claimed = pipeline_engine.claim_next_job("integration-test-worker")
+    assert str(claimed.id) == run_id
+    pipeline_engine.execute_pipeline_run(claimed.id)
+
+    run = client.get(
+        f"/api/v1/workspaces/{workspace_id}/pipelines/runs/{run_id}",
+        headers=headers,
+    )
+    logs = client.get(
+        f"/api/v1/workspaces/{workspace_id}/pipelines/runs/{run_id}/logs",
+        headers=headers,
+    )
+    assert logs.status_code == 200
+    assert run.status_code == 200
+    step_results = [(item["status"], item.get("error_message")) for item in logs.json()["steps"]]
+    assert run.json()["status"] == "SUCCEEDED", step_results
+    assert all(step_run["status"] == "SUCCEEDED" for step_run in logs.json()["steps"])
+
+    result = client.post(
+        f"/api/v1/workspaces/{workspace_id}/sql/execute",
+        json={"sql": "SELECT COUNT(*) AS row_count FROM customers"},
+        headers=headers,
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()["rows"][0]["row_count"] == 2
