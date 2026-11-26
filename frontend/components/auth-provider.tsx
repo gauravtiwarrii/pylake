@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 
@@ -27,28 +27,32 @@ const AuthContext = createContext<AuthContextValue>({
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authInitialized, setAuthInitialized] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true);
     const result = await api<User>("/api/v1/auth/me");
     setUser(result.data ?? null);
     setLoading(false);
-  };
+    setAuthInitialized(true);
+  }, []);
 
   useEffect(() => {
+    if (pathname === "/" || authInitialized) return;
     const timeout = window.setTimeout(() => {
       void refresh();
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, []);
+  }, [authInitialized, pathname, refresh]);
 
   useEffect(() => {
     if (loading) return;
-    const publicRoute = pathname === "/login" || pathname === "/register";
+    const publicRoute = pathname === "/" || pathname === "/login" || pathname === "/register";
+    const authRoute = pathname === "/login" || pathname === "/register";
     if (!user && !publicRoute) router.replace("/login");
-    if (user && publicRoute) router.replace("/workspaces");
+    if (user && authRoute) router.replace("/workspaces");
   }, [loading, pathname, router, user]);
 
   return (

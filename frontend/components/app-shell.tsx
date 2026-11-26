@@ -73,7 +73,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.clearTimeout(timeout);
   }, [pathname]);
 
-  if (publicRoute || (!workspaceRoute && !loading && pathname === "/")) {
+  if (publicRoute || pathname === "/") {
     return <>{children}</>;
   }
   if (loading) {

@@ -1,24 +1,12 @@
-"use client";
+import type { Metadata } from "next";
+import PublicLanding from "@/components/public-landing";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useAuth } from "@/components/auth-provider";
+export const metadata: Metadata = {
+  title: "PyLake — One platform. Every data.",
+  description:
+    "An open-source lakehouse for data ingestion, transformation, orchestration, SQL analytics, and data management.",
+};
 
 export default function HomePage() {
-  const { user, loading } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (loading) return;
-    router.replace(user ? "/workspaces" : "/login");
-  }, [loading, router, user]);
-
-  return (
-    <main className="grid min-h-screen place-items-center bg-[var(--background)]">
-      <div className="flex items-center gap-3 text-sm text-[var(--muted)]">
-        <div className="grid size-8 place-items-center rounded-lg bg-[var(--accent)] text-xs font-bold text-[var(--accent-foreground)]">PL</div>
-        Loading PyLake
-      </div>
-    </main>
-  );
+  return <PublicLanding />;
 }
