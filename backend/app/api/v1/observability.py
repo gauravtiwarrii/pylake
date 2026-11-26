@@ -57,19 +57,26 @@ def worker_health(
 ) -> dict:
     require_role(db, workspace_id, user, WorkspaceRole.ADMIN)
     settings = get_settings()
-    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=settings.worker_stale_seconds)
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=settings.worker_stale_seconds)
     workers = db.query(WorkerHeartbeat).order_by(WorkerHeartbeat.last_seen_at.desc()).all()
     return {
         "workers": [
             {
                 "worker_id": worker.worker_id,
                 "last_seen_at": worker.last_seen_at,
-                "status": "STALE" if worker.last_seen_at < cutoff else worker.status,
+                "status": "STALE" if _as_utc(worker.last_seen_at) < cutoff else worker.status,
                 "active_job_id": worker.active_job_id,
             }
             for worker in workers
         ]
     }
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Normalize DB timestamps: SQLite returns naive (stored as UTC), PostgreSQL may return aware."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 @router.get("/{workspace_id}/audit")
