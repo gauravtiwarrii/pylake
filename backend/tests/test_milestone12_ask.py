@@ -11,6 +11,7 @@ from sqlalchemy.pool import StaticPool
 
 import app.ask.router as ask_api
 import app.api.v1.datasets as datasets_api
+import app.api.v1.lakehouse as lakehouse_api
 from app.ai.providers import AICompletion
 from app.core.config import Settings
 from app.core.db import Base, get_db
@@ -39,6 +40,7 @@ def ask_env(monkeypatch):
     temp = tempfile.TemporaryDirectory(prefix="pylake-ask-")
     storage = LocalFileStorage(temp.name)
     monkeypatch.setattr(datasets_api, "get_storage", lambda: storage)
+    monkeypatch.setattr(lakehouse_api, "get_storage", lambda: storage)
     monkeypatch.setattr(ask_api, "get_storage", lambda: storage)
     settings = Settings(ai_provider="disabled", ask_max_rows=200, ai_rate_limit_requests=100, ai_daily_token_limit=100000)
     monkeypatch.setattr(ask_api, "get_settings", lambda: settings)
