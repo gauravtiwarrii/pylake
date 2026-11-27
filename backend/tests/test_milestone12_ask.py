@@ -47,7 +47,7 @@ def ask_env(monkeypatch):
     def override_db():
         with sessions() as db: yield db
     app.dependency_overrides[get_db] = override_db
-    with TestClient(app) as client:
+    with TestClient(app, raise_server_exceptions=True) as client:
         yield client, sessions, settings
     app.dependency_overrides.clear(); Base.metadata.drop_all(bind=engine); temp.cleanup()
 
@@ -146,7 +146,9 @@ def test_ai_sql_is_validated_limited_and_workspace_scoped(ask_env, monkeypatch):
     client, _, settings = ask_env
     workspace_id, headers = workspace(client, "ask-ai@example.com", "ask-ai")
     dataset, _, _ = data_asset(client, workspace_id, headers)
-    monkeypatch.setattr(ask_api, "get_settings", lambda: settings.model_copy(update={"ai_provider": "openai_compatible", "ai_api_key": "test-key", "ask_max_rows": 2}))
+    ai_settings = Settings(ai_provider="openai_compatible", ai_api_key="test-key", ai_model=settings.ai_model,
+        ask_max_rows=2, ai_rate_limit_requests=100, ai_daily_token_limit=100000)
+    monkeypatch.setattr(ask_api, "get_settings", lambda: ai_settings)
     monkeypatch.setattr(ask_api, "_configured_provider", lambda _: FakeProvider('{"sql":"SELECT product, SUM(revenue) AS revenue FROM sales GROUP BY product"}'))
     answer = client.post(f"/api/v1/workspaces/{workspace_id}/ask", json={"question": "Summarize revenue by product", "dataset_id": dataset["id"]}, headers=headers)
     assert answer.status_code == 200, answer.text
@@ -167,7 +169,9 @@ def test_ai_cell_prompt_injection_does_not_control_sql_or_answer_type(ask_env, m
     table = next(item for item in client.get(f"/api/v1/workspaces/{workspace_id}/lakehouse/tables", headers=headers).json() if item["name"] == "sales")
     promoted = client.post(f"/api/v1/workspaces/{workspace_id}/lakehouse/tables/{table['id']}/promote", json={"target_layer": "SILVER"}, headers=headers)
     assert promoted.status_code == 200, promoted.text
-    monkeypatch.setattr(ask_api, "get_settings", lambda: settings.model_copy(update={"ai_provider": "openai_compatible", "ai_api_key": "test-key"}))
+    ai_settings = Settings(ai_provider="openai_compatible", ai_api_key="test-key", ai_model=settings.ai_model,
+        ai_rate_limit_requests=100, ai_daily_token_limit=100000)
+    monkeypatch.setattr(ask_api, "get_settings", lambda: ai_settings)
     fake = FakeProvider('{"sql":"SELECT product, SUM(revenue) AS revenue FROM sales GROUP BY product"}')
     monkeypatch.setattr(ask_api, "_configured_provider", lambda _: fake)
     response = client.post(f"/api/v1/workspaces/{workspace_id}/ask", json={"question": "Summarize revenue by product"}, headers=headers)

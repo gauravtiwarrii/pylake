@@ -166,6 +166,11 @@ def ask(workspace_id: UUID, payload: AskRequest, db: Session = Depends(get_db), 
             return _store_ask(db, workspace_id, user, _clarification(question,
                 "The generated query did not pass read-only workspace validation. Try a narrower question.",
                 [{"id": str(asset.id), "name": table.name}], [], ["No query was executed."]))
+        except Exception:
+            logger.exception("Ask AI SQL generation failed workspace=%s", workspace_id)
+            return _store_ask(db, workspace_id, user, _clarification(question,
+                "AI could not prepare a safe query. Please retry or clarify the table and columns.",
+                [{"id": str(asset.id), "name": table.name}], [], ["No query was executed."]))
         sql = result.value["sql"]; ai_used = True
     else:
         sql, used_columns, deterministic_summary = build_template_sql(question, bounded_schema, table.name)
