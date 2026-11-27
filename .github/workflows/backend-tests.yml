@@ -33,6 +33,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e '.[dev]'
+      - name: Check backend names with Pyflakes
+        run: |
+          python -m pip install pyflakes
+          python -m pyflakes app
       - name: Run backend test suite
         env:
           DATABASE_URL: sqlite:///./ci_tests.db

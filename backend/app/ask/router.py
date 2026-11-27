@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -24,7 +23,7 @@ from app.core.db import get_db
 from app.core.rate_limit import check_database_rate_limit
 from app.engines.query_executor import execute_workspace_query
 from app.engines.query_validator import SQLValidationError
-from app.models.entities import AskHistory, AIConversation, CatalogColumn, Dataset, DatasetVersion, LakehouseTable, LakehouseVersionStatus, QueryExecutionStatus, QueryHistory, User
+from app.models.entities import AskHistory, AIConversation, CatalogAsset, CatalogColumn, Dataset, LakehouseTable, QueryExecutionStatus, QueryHistory, User
 from app.storage.factory import get_storage
 
 logger = logging.getLogger("pylake.ask")
@@ -95,7 +94,7 @@ def history(workspace_id: UUID, db: Session = Depends(get_db), user: User = Depe
 
 @router.post("/{workspace_id}/ask")
 def ask(workspace_id: UUID, payload: AskRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
-    member = membership(db, workspace_id, user.id)
+    membership(db, workspace_id, user.id)
     scope = f"{workspace_id}:{user.id}"
     check_database_rate_limit(db, scope, "ask", attempts=30, window_seconds=3600)
     question = payload.question.strip()

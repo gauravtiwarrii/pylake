@@ -9,7 +9,6 @@ import sqlglot
 from sqlglot import exp
 from sqlalchemy.orm import Session
 
-from app.ask.citations import citation
 from app.engines.catalog_resolver import logical_name, resolve_catalog
 from app.engines.query_validator import SQLValidationError, validate_read_only_sql
 from app.models.entities import CatalogAsset, CatalogColumn, DatasetVersion, LakehouseTable, LakehouseVersionStatus
