@@ -127,7 +127,7 @@ def ask(workspace_id: UUID, payload: AskRequest, db: Session = Depends(get_db), 
     if not asset or not table or not version:
         candidates = []
         rows = db.query(CatalogColumn.name, CatalogAsset.id, CatalogAsset.name).join(CatalogAsset, CatalogAsset.id == CatalogColumn.asset_id).filter(CatalogAsset.workspace_id == workspace_id).limit(30).all()
-        candidates = [{"id": str(row[1]), "name": row[2]} for row in db.query(CatalogAsset).filter(CatalogAsset.workspace_id == workspace_id, CatalogAsset.asset_type == "TABLE").limit(20).all()]
+        candidates = [{"id": str(asset.id), "name": asset.name} for asset in db.query(CatalogAsset).filter(CatalogAsset.workspace_id == workspace_id, CatalogAsset.asset_type == "TABLE").limit(20).all()]
         column_candidates = [{"name": row[0], "table": row[2], "asset_id": str(row[1])} for row in rows]
         return _store_ask(db, workspace_id, user, _clarification(question, "Choose a queryable lakehouse table, or promote a dataset into the lakehouse first.", candidates, column_candidates,
                               ["Only completed Parquet table versions can be queried."]))

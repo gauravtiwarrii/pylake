@@ -94,11 +94,13 @@ def test_unresolved_data_question_returns_table_candidates_not_500(ask_env):
         if table["name"] == "pipeline_test"
     )
 
-    response = client.post(
-        f"/api/v1/workspaces/{workspace_id}/ask",
-        json={"question": "top 3 foo by bar", "table_id": bronze_table["id"]},
-        headers=headers,
-    )
+    with TestClient(app, raise_server_exceptions=True) as debug_client:
+        debug_client.cookies.update(client.cookies)
+        response = debug_client.post(
+            f"/api/v1/workspaces/{workspace_id}/ask",
+            json={"question": "top 3 foo by bar", "table_id": bronze_table["id"]},
+            headers=headers,
+        )
     assert response.status_code == 200, response.text
     assert response.json()["answer_type"] == "clarification"
     assert response.json()["candidate_columns"]
