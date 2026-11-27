@@ -143,7 +143,7 @@ def test_clarification_unsupported_and_nonexecution(ask_env):
 
 
 def test_ai_sql_is_validated_limited_and_workspace_scoped(ask_env, monkeypatch):
-    client, _, settings = ask_env
+    client, sessions, settings = ask_env
     workspace_id, headers = workspace(client, "ask-ai@example.com", "ask-ai")
     dataset, _, _ = data_asset(client, workspace_id, headers)
     ai_settings = Settings(ai_provider="openai_compatible", ai_api_key="test-key", ai_model=settings.ai_model,
@@ -156,9 +156,18 @@ def test_ai_sql_is_validated_limited_and_workspace_scoped(ask_env, monkeypatch):
     assert answer.json()["truncated"] is True
     for bad_sql in ("DROP TABLE sales", "SELECT * FROM secret_table", "SELECT * FROM read_csv('evil.csv')"):
         monkeypatch.setattr(ask_api, "_configured_provider", lambda _, sql=bad_sql: FakeProvider('{"sql":' + __import__("json").dumps(sql) + '}'))
+        with sessions() as db:
+            history_before = db.query(QueryHistory).filter(
+                QueryHistory.workspace_id == UUID(workspace_id), QueryHistory.query_name == "ask"
+            ).count()
         rejected = client.post(f"/api/v1/workspaces/{workspace_id}/ask", json={"question": "Summarize sales", "dataset_id": dataset["id"]}, headers=headers)
         assert rejected.status_code == 200 and rejected.json()["answer_type"] == "clarification"
-        assert "No query was executed" in rejected.json()["limitations"]
+        assert any("No query was executed" in item for item in rejected.json()["limitations"])
+        with sessions() as db:
+            history_after = db.query(QueryHistory).filter(
+                QueryHistory.workspace_id == UUID(workspace_id), QueryHistory.query_name == "ask"
+            ).count()
+        assert history_after == history_before
 
 
 def test_ai_cell_prompt_injection_does_not_control_sql_or_answer_type(ask_env, monkeypatch):
