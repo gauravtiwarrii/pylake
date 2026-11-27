@@ -9,10 +9,9 @@ import sqlglot
 from sqlglot import exp
 from sqlalchemy.orm import Session
 
-from app.ask.citations import citation
 from app.engines.catalog_resolver import logical_name, resolve_catalog
 from app.engines.query_validator import SQLValidationError, validate_read_only_sql
-from app.models.entities import CatalogAsset, CatalogColumn, DatasetVersion, LakehouseTable, LakehouseVersionStatus
+from app.models.entities import CatalogAsset, DatasetVersion, LakehouseTable, LakehouseVersionStatus
 
 
 def _column_match(value: str, columns: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, float, list[dict[str, Any]]]:

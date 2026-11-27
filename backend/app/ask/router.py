@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -24,7 +23,7 @@ from app.core.db import get_db
 from app.core.rate_limit import check_database_rate_limit
 from app.engines.query_executor import execute_workspace_query
 from app.engines.query_validator import SQLValidationError
-from app.models.entities import AskHistory, AIConversation, CatalogColumn, Dataset, DatasetVersion, LakehouseTable, LakehouseVersionStatus, QueryExecutionStatus, QueryHistory, User
+from app.models.entities import AskHistory, AIConversation, CatalogAsset, CatalogColumn, Dataset, LakehouseTable, QueryExecutionStatus, QueryHistory, User
 from app.storage.factory import get_storage
 
 logger = logging.getLogger("pylake.ask")
@@ -95,7 +94,7 @@ def history(workspace_id: UUID, db: Session = Depends(get_db), user: User = Depe
 
 @router.post("/{workspace_id}/ask")
 def ask(workspace_id: UUID, payload: AskRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict:
-    member = membership(db, workspace_id, user.id)
+    membership(db, workspace_id, user.id)
     scope = f"{workspace_id}:{user.id}"
     check_database_rate_limit(db, scope, "ask", attempts=30, window_seconds=3600)
     question = payload.question.strip()
@@ -128,7 +127,7 @@ def ask(workspace_id: UUID, payload: AskRequest, db: Session = Depends(get_db), 
     if not asset or not table or not version:
         candidates = []
         rows = db.query(CatalogColumn.name, CatalogAsset.id, CatalogAsset.name).join(CatalogAsset, CatalogAsset.id == CatalogColumn.asset_id).filter(CatalogAsset.workspace_id == workspace_id).limit(30).all()
-        candidates = [{"id": str(row[1]), "name": row[2]} for row in db.query(CatalogAsset).filter(CatalogAsset.workspace_id == workspace_id, CatalogAsset.asset_type == "TABLE").limit(20).all()]
+        candidates = [{"id": str(asset.id), "name": asset.name} for asset in db.query(CatalogAsset).filter(CatalogAsset.workspace_id == workspace_id, CatalogAsset.asset_type == "TABLE").limit(20).all()]
         column_candidates = [{"name": row[0], "table": row[2], "asset_id": str(row[1])} for row in rows]
         return _store_ask(db, workspace_id, user, _clarification(question, "Choose a queryable lakehouse table, or promote a dataset into the lakehouse first.", candidates, column_candidates,
                               ["Only completed Parquet table versions can be queried."]))

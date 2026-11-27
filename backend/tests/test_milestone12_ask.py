@@ -76,6 +76,36 @@ def data_asset(client, workspace_id, headers):
     return upload.json(), table, asset
 
 
+def test_unresolved_data_question_returns_table_candidates_not_500(ask_env):
+    client, _, _ = ask_env
+    workspace_id, headers = workspace(client, "ask-candidate@example.com", "ask-candidate")
+    data_asset(client, workspace_id, headers)
+    second_upload = client.post(
+        f"/api/v1/workspaces/{workspace_id}/datasets/upload",
+        files={"file": ("pipeline_test.csv", b"name,score\nalpha,3\nbeta,8\n", "text/csv")},
+        data={"name": "pipeline_test"},
+        headers=headers,
+    )
+    assert second_upload.status_code == 201, second_upload.text
+    bronze_table = next(
+        table for table in client.get(
+            f"/api/v1/workspaces/{workspace_id}/lakehouse/tables", headers=headers
+        ).json()
+        if table["name"] == "pipeline_test"
+    )
+
+    with TestClient(app, raise_server_exceptions=True) as debug_client:
+        debug_client.cookies.update(client.cookies)
+        response = debug_client.post(
+            f"/api/v1/workspaces/{workspace_id}/ask",
+            json={"question": "top 3 foo by bar", "table_id": bronze_table["id"]},
+            headers=headers,
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["answer_type"] == "clarification"
+    assert response.json()["candidate_columns"]
+
+
 def test_ai_disabled_templates_top_total_count_and_trend_match_csv(ask_env):
     client, _, _ = ask_env
     workspace_id, headers = workspace(client)
