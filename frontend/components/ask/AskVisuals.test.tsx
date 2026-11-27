@@ -19,7 +19,7 @@ describe("Ask Lakehouse visuals", () => {
 
   it("renders citations as workspace links", () => {
     render(<CitationChips workspaceId="ws-1" citations={[{ type: "table", id: "table-1", name: "sales", column: "revenue" }]} />);
-    expect(screen.getByRole("link", { name: "table sales · revenue" })).toHaveAttribute("href", "/workspaces/ws-1/catalog?search=sales");
+    expect(screen.getByRole("link", { name: "table: sales · revenue" })).toHaveAttribute("href", "/workspaces/ws-1/catalog?search=sales");
   });
 
   it("renders clarification choices and lets a user refine", () => {

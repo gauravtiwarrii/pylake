@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { ArrowUpRight, Check, Copy } from "lucide-react";
 import type { AskAnswer } from "./types";
 import { AskChart, CitationChips, ClarificationOptions } from "./AskVisuals";
@@ -23,10 +24,9 @@ export function AskAnswerCard({
   const [copyError, setCopyError] = useState("");
   const rows = (answer.rows ?? answer.table_rows ?? []).slice(0, 200);
   const columns = answer.columns?.map((item) => item.name) ?? Object.keys(rows[0] ?? {});
-  const openSql = () => {
-    if (!answer.sql) return;
-    window.location.assign(`/workspaces/${workspaceId}/sql?sql=${encodeURIComponent(answer.sql)}`);
-  };
+  const sqlWorkspaceHref = answer.sql
+    ? `/workspaces/${workspaceId}/sql?sql=${encodeURIComponent(answer.sql)}`
+    : `/workspaces/${workspaceId}/sql`;
   const copySql = async () => {
     if (!answer.sql) return;
     try {
@@ -65,7 +65,7 @@ export function AskAnswerCard({
           <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-5">{answer.sql}</pre>
           <div className="mt-3 flex flex-wrap gap-2">
             <button type="button" onClick={() => void copySql()} className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-xs hover:bg-[var(--surface-hover)]">{copied ? <Check size={13} /> : <Copy size={13} />}{copied ? "Copied" : "Copy SQL"}</button>
-            <button type="button" onClick={openSql} className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-[var(--accent-foreground)] hover:bg-[var(--accent-strong)]">Open in SQL Workspace <ArrowUpRight size={13} /></button>
+            <Link href={sqlWorkspaceHref} className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-[var(--accent-foreground)] hover:bg-[var(--accent-strong)]">Open in SQL Workspace <ArrowUpRight size={13} /></Link>
           </div>
           {copyError && <p role="alert" className="mt-2 text-xs text-[var(--danger)]">{copyError}</p>}
         </div>

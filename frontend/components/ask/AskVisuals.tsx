@@ -68,7 +68,7 @@ export function CitationChips({ citations, workspaceId }: { citations: AskCitati
     <ul aria-label="Sources" className="flex flex-wrap gap-2">
       {citations.map((item, index) => (
         <li key={`${item.type}-${item.id}-${item.column ?? index}`}>
-          <Link href={hrefFor(item)} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-1 text-xs text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--foreground)]">
+          <Link href={hrefFor(item)} aria-label={`${item.type}: ${item.name}${item.column ? ` · ${item.column}` : ""}`} className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-raised)] px-2.5 py-1 text-xs text-[var(--muted)] hover:border-[var(--accent)] hover:text-[var(--foreground)]">
             <span className="uppercase tracking-wide">{item.type}</span>
             <span>{item.name}{item.column ? ` · ${item.column}` : ""}</span>
           </Link>
