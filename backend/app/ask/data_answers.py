@@ -16,6 +16,14 @@ from app.models.entities import CatalogAsset, DatasetVersion, LakehouseTable, La
 
 def _column_match(value: str, columns: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, float, list[dict[str, Any]]]:
     target = re.sub(r"[^a-z0-9]+", " ", value.casefold()).strip()
+    exact = [
+        column for column in columns
+        if re.sub(r"[^a-z0-9]+", " ", str(column.get("name", "")).casefold()).strip() == target
+    ]
+    if len(exact) == 1:
+        return exact[0], 1.0, exact
+    if len(exact) > 1:
+        return None, 1.0, exact[:5]
     ranked = []
     for column in columns:
         name = str(column.get("name", ""))
@@ -28,6 +36,19 @@ def _column_match(value: str, columns: list[dict[str, Any]]) -> tuple[dict[str, 
     top = ranked[0] if ranked else (0, None)
     tied = [col for score, col in ranked if top[0] - score < .08]
     return top[1] if top[0] >= .55 and len(tied) == 1 else None, top[0], [col for _, col in ranked[:5]]
+
+
+def _is_numeric_column(column: dict[str, Any]) -> bool:
+    data_type = str(column.get("type", column.get("data_type", ""))).strip().casefold()
+    return bool(re.match(r"^(?:u?int|float|double|decimal|numeric|number|real|bigint|smallint|long|short|byte)", data_type))
+
+
+def _numeric_candidates(columns: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [column for column in columns if _is_numeric_column(column)]
+
+
+def _match_confidence(query: str, column: dict[str, Any]) -> str:
+    return "high" if query.strip().casefold() == str(column.get("name", "")).strip().casefold() else "medium"
 
 
 def _pick_asset(db: Session, workspace_id: UUID, question: str, dataset_id: UUID | None, table_id: UUID | None) -> tuple[CatalogAsset | None, LakehouseTable | None, DatasetVersion | None]:
@@ -68,49 +89,112 @@ def _quote(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
 
 
-def _templates(question: str, columns: list[dict[str, Any]], table_name: str) -> tuple[str | None, list[dict[str, Any]], str | None]:
+def _templates(question: str, columns: list[dict[str, Any]], table_name: str) -> tuple[str | None, list[dict[str, Any]], str | None, str]:
     q = question.casefold()
     from_clause = _quote(logical_name(table_name))
     row_count = re.search(r"\bhow many rows\b", q)
     if row_count:
-        return f"SELECT COUNT(*) AS row_count FROM {from_clause}", [], "Count all rows in the selected table."
-    top = re.search(r"\b(top|highest|lowest|most|least)\s*(\d+)?\s+(.+?)\s+(?:by|per)\s+(.+?)(?:\?|$)", q)
-    if top:
-        metric, _, metric_candidates = _column_match(top.group(3), columns)
-        dimension, _, dimension_candidates = _column_match(top.group(4), columns)
-        if not metric or not dimension:
-            return None, metric_candidates + dimension_candidates, "I could not map the requested metric and grouping to one unambiguous column each."
-        n = min(200, max(1, int(top.group(2) or 10)))
-        direction = "ASC" if top.group(1) in {"lowest", "least"} else "DESC"
-        sql = f"SELECT {_quote(dimension['name'])} AS {_quote(dimension['name'])}, SUM(TRY_CAST({_quote(metric['name'])} AS DOUBLE)) AS {_quote(metric['name'])} FROM {from_clause} GROUP BY 1 ORDER BY 2 {direction} LIMIT {n}"
-        return sql, [metric, dimension], f"Ranked groups by the sum of {metric['name']}."
+        return f"SELECT COUNT(*) AS row_count FROM {from_clause}", [], "Count all rows in the selected table.", "high"
+
+    common = re.search(r"\bmost\s+common\s+(.+?)(?:\?|$)", q)
+    if common:
+        dimension, _, candidates = _column_match(common.group(1), columns)
+        if not dimension:
+            return None, candidates, "I could not map the requested category to one unambiguous column.", "low"
+        n_match = re.search(r"\btop\s+(\d+)\b", q)
+        n = min(200, max(1, int(n_match.group(1)))) if n_match else 10
+        name = _quote(str(dimension["name"]))
+        sql = f"SELECT {name} AS {name}, COUNT(*) AS count FROM {from_clause} GROUP BY {name} ORDER BY count DESC LIMIT {n}"
+        confidence = _match_confidence(common.group(1), dimension)
+        return sql, [dimension], f"Top {n} most common {dimension['name']} values by count.", confidence
+
+    rank = re.search(r"\b(top|highest|largest|bottom|lowest|smallest)\s+(?:(\d+)\s+)?(.+?)\s+(?:by|per)\s+(.+?)(?:\?|$)", q)
+    if rank:
+        operation, count_text, first_text, second_text = rank.groups()
+        first, _, first_candidates = _column_match(first_text, columns)
+        second, _, second_candidates = _column_match(second_text, columns)
+        if not first or not second:
+            return None, first_candidates + second_candidates, "I could not map the requested metric and grouping to one unambiguous column each.", "low"
+
+        explicit_n = count_text is not None
+        if explicit_n:
+            dimension, metric = first, second
+            dimension_text, metric_text = first_text, second_text
+        elif _is_numeric_column(first) and not _is_numeric_column(second):
+            metric, dimension = first, second
+            metric_text, dimension_text = first_text, second_text
+        elif _is_numeric_column(second) and not _is_numeric_column(first):
+            dimension, metric = first, second
+            dimension_text, metric_text = first_text, second_text
+        elif operation in {"top", "bottom"}:
+            dimension, metric = first, second
+            dimension_text, metric_text = first_text, second_text
+        else:
+            metric, dimension = first, second
+            metric_text, dimension_text = first_text, second_text
+
+        if not _is_numeric_column(metric):
+            numeric = _numeric_candidates(columns)
+            suggestion = ", ".join(str(column["name"]) for column in numeric[:5])
+            summary = f"{metric['name']} is not a numeric metric. Choose a numeric column{': ' + suggestion if suggestion else ''}."
+            return None, numeric, summary, "low"
+
+        n = min(200, max(1, int(count_text or 10)))
+        direction = "ASC" if operation in {"bottom", "lowest", "smallest"} else "DESC"
+        dimension_name = _quote(str(dimension["name"]))
+        metric_name = _quote(str(metric["name"]))
+        # Preserve the established metric alias for natural "highest metric by
+        # dimension" questions; explicit numbered top-N asks use total_<metric>.
+        metric_alias = str(metric["name"]) if not explicit_n and metric is first else f"total_{metric['name']}"
+        total_name = _quote(metric_alias)
+        sql = (f"SELECT {dimension_name} AS {dimension_name}, "
+               f"SUM(TRY_CAST({metric_name} AS DOUBLE)) AS {total_name} FROM {from_clause} "
+               f"GROUP BY {dimension_name} ORDER BY {total_name} {direction} LIMIT {n}")
+        confidence = "high" if (
+            _match_confidence(dimension_text, dimension) == "high"
+            and _match_confidence(metric_text, metric) == "high"
+        ) else "medium"
+        title = "Lowest" if direction == "ASC" else "Top"
+        summary = f"{title} {n} {dimension['name']} by total {metric['name']}."
+        return sql, [metric, dimension], summary, confidence
+
     aggregate = re.search(r"\b(total|sum|average|avg|mean|count)\s+(?:of\s+)?(.+?)(?:\s+(?:by|per)\s+(.+?))?(?:\?|$)", q)
     if aggregate:
         method, metric_text, dimension_text = aggregate.groups()
         metric, _, candidates = _column_match(metric_text, columns)
         if not metric:
-            return None, candidates, "I could not confidently map the requested measure to one column."
-        op = "COUNT" if method == "count" else "AVG" if method in {"average", "avg", "mean"} else "SUM"
-        expression = f"{op}(TRY_CAST({_quote(metric['name'])} AS DOUBLE))"
+            return None, candidates, "I could not confidently map the requested measure to one column.", "low"
+        if method != "count" and not _is_numeric_column(metric):
+            numeric = _numeric_candidates(columns)
+            return None, numeric, f"{metric['name']} is not a numeric metric. Choose a numeric column.", "low"
+        expression = f"COUNT({_quote(metric['name'])})" if method == "count" else f"{'AVG' if method in {'average', 'avg', 'mean'} else 'SUM'}(TRY_CAST({_quote(metric['name'])} AS DOUBLE))"
+        confidence = _match_confidence(metric_text, metric)
         if dimension_text:
             dimension, _, other = _column_match(dimension_text, columns)
             if not dimension:
-                return None, candidates + other, "I could not confidently map the requested grouping to one column."
+                return None, candidates + other, "I could not confidently map the requested grouping to one column.", "low"
             sql = f"SELECT {_quote(dimension['name'])}, {expression} AS value FROM {from_clause} GROUP BY 1 ORDER BY 2 DESC"
-            return sql, [metric, dimension], f"Computed {method} of {metric['name']} grouped by {dimension['name']}."
-        return f"SELECT {expression} AS value FROM {from_clause}", [metric], f"Computed {method} of {metric['name']}."
+            confidence = "high" if confidence == "high" and _match_confidence(dimension_text, dimension) == "high" else "medium"
+            return sql, [metric, dimension], f"Computed {method} of {metric['name']} grouped by {dimension['name']}.", confidence
+        return f"SELECT {expression} AS value FROM {from_clause}", [metric], f"Computed {method} of {metric['name']}.", confidence
     trend = re.search(r"\btrend\s+(?:of\s+)?(.+?)\s+by\s+(.+?)(?:\?|$)", q)
     if trend:
         metric, _, metric_candidates = _column_match(trend.group(1), columns)
         date_col, _, date_candidates = _column_match(trend.group(2), columns)
         if not metric or not date_col:
-            return None, metric_candidates + date_candidates, "I could not confidently map the trend measure and date column."
+            return None, metric_candidates + date_candidates, "I could not confidently map the trend measure and date column.", "low"
+        if not _is_numeric_column(metric):
+            return None, _numeric_candidates(columns), f"{metric['name']} is not a numeric metric. Choose a numeric column.", "low"
         sql = f"SELECT {_quote(date_col['name'])}, SUM(TRY_CAST({_quote(metric['name'])} AS DOUBLE)) AS {_quote(metric['name'])} FROM {from_clause} GROUP BY 1 ORDER BY 1"
-        return sql, [metric, date_col], f"Computed a sum of {metric['name']} by {date_col['name']}."
-    return None, columns[:10], None
+        confidence = "high" if (
+            _match_confidence(trend.group(1), metric) == "high"
+            and _match_confidence(trend.group(2), date_col) == "high"
+        ) else "medium"
+        return sql, [metric, date_col], f"Computed a sum of {metric['name']} by {date_col['name']}.", confidence
+    return None, columns[:10], None, "low"
 
 
-def build_template_sql(question: str, columns: list[dict[str, Any]], table_name: str) -> tuple[str | None, list[dict[str, Any]], str | None]:
+def build_template_sql(question: str, columns: list[dict[str, Any]], table_name: str) -> tuple[str | None, list[dict[str, Any]], str | None, str]:
     return _templates(question, columns, table_name)
 
 

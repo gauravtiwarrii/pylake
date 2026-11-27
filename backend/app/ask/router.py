@@ -143,6 +143,7 @@ def ask(workspace_id: UUID, payload: AskRequest, db: Session = Depends(get_db), 
     sql: str | None = None
     used_columns: list[dict[str, Any]] = []
     deterministic_summary: str | None = None
+    template_confidence = "high"
     ai_used = False
     settings = get_settings()
     if provider_status(settings).get("configured"):
@@ -172,7 +173,7 @@ def ask(workspace_id: UUID, payload: AskRequest, db: Session = Depends(get_db), 
                 [{"id": str(asset.id), "name": table.name}], [], ["No query was executed."]))
         sql = result.value["sql"]; ai_used = True
     else:
-        sql, used_columns, deterministic_summary = build_template_sql(question, bounded_schema, table.name)
+        sql, used_columns, deterministic_summary, template_confidence = build_template_sql(question, bounded_schema, table.name)
         if not sql:
             column_candidates = [{"name": col["name"], "table": table.name, "type": col.get("type", "unknown")} for col in used_columns]
             return _store_ask(db, workspace_id, user, _clarification(question, deterministic_summary or "I can answer common totals, counts, rankings, and trends. Please clarify the table and column names.",
@@ -191,7 +192,7 @@ def ask(workspace_id: UUID, payload: AskRequest, db: Session = Depends(get_db), 
     if not payload.execute:
         return _store_ask(db, workspace_id, user, {"answer_type": "data", "question": question, "summary": "Validated query is ready to execute.", "sql": sql,
                 "columns": [], "rows": [], "row_count": 0, "truncated": False, "chart_suggestion": None,
-                "citations": [citation("table", asset.id, table.name)], "limitations": [], "confidence": "medium", "ai_used": ai_used})
+                "citations": [citation("table", asset.id, table.name)], "limitations": [], "confidence": "medium" if ai_used else template_confidence, "ai_used": ai_used})
 
     history = QueryHistory(workspace_id=workspace_id, user_id=user.id, query_name="ask", sql_text=sql, execution_status=QueryExecutionStatus.RUNNING)
     db.add(history); db.flush()
@@ -232,7 +233,7 @@ def ask(workspace_id: UUID, payload: AskRequest, db: Session = Depends(get_db), 
                 "columns": cols, "rows": rows, "row_count": total_count if total_count is not None else result["total_rows_available"], "truncated": truncation,
                 "chart_suggestion": _chart(rows, cols), "citations": unique_citations(citations),
                 "limitations": (["Results were truncated to the configured maximum row count."] if truncation else (["Could not determine whether the result exceeded the row cap."] if truncation is None else [])),
-                "confidence": "medium" if ai_used else "high", "ai_used": ai_used, "query_history_id": str(history.id)}
+                "confidence": "medium" if ai_used else template_confidence, "ai_used": ai_used, "query_history_id": str(history.id)}
     record_audit(db, workspace_id, user.id, "ASK_QUERY_EXECUTED", "query_history", history.id,
                  {"status": "SUCCESS", "ai_used": ai_used, "rows_returned": len(rows)})
     db.commit()
