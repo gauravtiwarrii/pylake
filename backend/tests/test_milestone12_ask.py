@@ -3,6 +3,7 @@ from collections.abc import Iterator, Sequence
 from uuid import UUID
 
 import pytest
+import polars as pl
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -76,6 +77,29 @@ def data_asset(client, workspace_id, headers):
     return upload.json(), table, asset
 
 
+def city_population_asset(client, workspace_id, headers):
+    upload = client.post(
+        f"/api/v1/workspaces/{workspace_id}/datasets/upload",
+        files={"file": ("cities.csv", b"City,Population\nA,30\nB,10\nA,10\nC,35\nB,20\n", "text/csv")},
+        data={"name": "cities"},
+        headers=headers,
+    )
+    assert upload.status_code == 201, upload.text
+    table = next(
+        item for item in client.get(
+            f"/api/v1/workspaces/{workspace_id}/lakehouse/tables", headers=headers
+        ).json()
+        if item["name"] == "cities"
+    )
+    promoted = client.post(
+        f"/api/v1/workspaces/{workspace_id}/lakehouse/tables/{table['id']}/promote",
+        json={"target_layer": "SILVER"},
+        headers=headers,
+    )
+    assert promoted.status_code == 200, promoted.text
+    return table
+
+
 def test_unresolved_data_question_returns_table_candidates_not_500(ask_env):
     client, _, _ = ask_env
     workspace_id, headers = workspace(client, "ask-candidate@example.com", "ask-candidate")
@@ -113,6 +137,7 @@ def test_ai_disabled_templates_top_total_count_and_trend_match_csv(ask_env):
     base = f"/api/v1/workspaces/{workspace_id}/ask"
     cases = [("Which products have the highest revenue by product?", "revenue", 30),
              ("What is the total revenue?", "value", 65),
+             ("What is total revenue by product?", "value", 30),
              ("How many rows are in sales?", "row_count", 4),
              ("Show trend of revenue by order_date", "revenue", None)]
     for question, column, expected in cases:
@@ -124,6 +149,79 @@ def test_ai_disabled_templates_top_total_count_and_trend_match_csv(ask_env):
         assert any(c["type"] == "table" for c in body["citations"])
         if expected is not None: assert body["rows"][0][column] == pytest.approx(expected)
     assert client.get(f"{base}/history", headers=headers).json()[0]["question"] == cases[-1][0]
+
+
+def test_top_n_groups_by_dimension_and_uses_numeric_metric(ask_env):
+    client, _, _ = ask_env
+    workspace_id, headers = workspace(client, "ask-topn@example.com", "ask-topn")
+    table = city_population_asset(client, workspace_id, headers)
+    response = client.post(
+        f"/api/v1/workspaces/{workspace_id}/ask",
+        json={"question": "top 5 City by Population", "table_id": table["id"]},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["answer_type"] == "data"
+    assert body["confidence"] == "high"
+    assert body["summary"] == "Top 5 City by total Population."
+    assert '"City" AS "City"' in body["sql"]
+    assert 'SUM(TRY_CAST("Population" AS DOUBLE)) AS "total_Population"' in body["sql"]
+    assert 'GROUP BY "City"' in body["sql"]
+
+    expected = (
+        pl.DataFrame({"City": ["A", "B", "A", "C", "B"], "Population": [30, 10, 10, 35, 20]})
+        .group_by("City")
+        .agg(pl.col("Population").sum().alias("total_Population"))
+        .sort("total_Population", descending=True)
+        .head(5)
+        .to_dicts()
+    )
+    assert body["rows"] == expected
+    assert body["chart_suggestion"] == {"type": "bar", "x": "City", "y": "total_Population"}
+
+    fuzzy = client.post(
+        f"/api/v1/workspaces/{workspace_id}/ask",
+        json={"question": "top 3 City by Populaton", "table_id": table["id"]},
+        headers=headers,
+    )
+    assert fuzzy.status_code == 200, fuzzy.text
+    assert fuzzy.json()["answer_type"] == "data"
+    assert fuzzy.json()["confidence"] == "medium"
+
+
+def test_top_n_non_numeric_metric_clarifies_instead_of_summing_text(ask_env):
+    client, _, _ = ask_env
+    workspace_id, headers = workspace(client, "ask-topn-text@example.com", "ask-topn-text")
+    table = city_population_asset(client, workspace_id, headers)
+    response = client.post(
+        f"/api/v1/workspaces/{workspace_id}/ask",
+        json={"question": "top 3 City by City", "table_id": table["id"]},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["answer_type"] == "clarification"
+    assert body.get("sql") is None
+    assert "City is not a numeric metric" in body["summary"]
+    assert any(column["name"] == "Population" for column in body["candidate_columns"])
+
+
+def test_lowest_top_n_orders_ascending(ask_env):
+    client, _, _ = ask_env
+    workspace_id, headers = workspace(client, "ask-lowest@example.com", "ask-lowest")
+    table = city_population_asset(client, workspace_id, headers)
+    response = client.post(
+        f"/api/v1/workspaces/{workspace_id}/ask",
+        json={"question": "lowest 2 City by Population", "table_id": table["id"]},
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["answer_type"] == "data"
+    assert body["summary"] == "Lowest 2 City by total Population."
+    assert 'ORDER BY "total_Population" ASC LIMIT 2' in body["sql"]
+    assert [(row["City"], row["total_Population"]) for row in body["rows"]] == [("B", 30.0), ("C", 35.0)]
 
 
 def test_metadata_intents_use_real_records_and_citations(ask_env):
