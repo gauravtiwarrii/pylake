@@ -476,3 +476,7 @@ The Railway worker service does **not** expose a port or health-check endpoint; 
 ## Data Trust Passport
 
 The Data Trust Passport computes measurement-backed quality scores, tracks quality rules and score history, and explains which dimensions could not be measured. Missing evidence is excluded from the overall score. See [docs/TRUST_PASSPORT.md](docs/TRUST_PASSPORT.md) for formulas, sampling, triggers, and security details. AI explanations are optional estimates based on aggregate measurements only.
+
+## Ask Lakehouse
+
+Ask Lakehouse answers workspace metadata questions and common data questions with citations and validated read-only SQL. Deterministic metadata answers and SQL templates work with AI disabled; ambiguous requests return table or column candidates instead of guessing. SQL Workspace can analyze a query without executing it. See [docs/ASK_LAKEHOUSE.md](docs/ASK_LAKEHOUSE.md) for endpoint shapes, safety checks, limits, and analysis heuristics.
