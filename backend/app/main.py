@@ -18,6 +18,7 @@ from app.api.v1.pipelines import router as pipelines_router
 from app.api.v1.observability import router as observability_router
 from app.api.v1.catalog import router as catalog_router
 from app.api.v1.ai import router as ai_router
+from app.api.v1.autopilot import router as autopilot_router
 from app.core.config import get_settings
 from app.core.db import Base, engine
 from app.core.security import sha256
@@ -96,6 +97,7 @@ app.include_router(observability_router, prefix=settings.api_v1_prefix)
 app.include_router(catalog_router, prefix=settings.api_v1_prefix)
 app.include_router(pipelines_router, prefix=settings.api_v1_prefix)
 app.include_router(ai_router, prefix=settings.api_v1_prefix)
+app.include_router(autopilot_router, prefix=settings.api_v1_prefix)
 
 
 class CsrfMiddleware(BaseHTTPMiddleware):

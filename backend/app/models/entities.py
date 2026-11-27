@@ -517,3 +517,92 @@ class AIRecommendation(Base):
     decision_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, server_default=func.now())
+
+
+class AutopilotPlanStatus(str, enum.Enum):
+    DRAFT = "DRAFT"
+    PREVIEWED = "PREVIEWED"
+    APPROVED = "APPROVED"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class AutopilotStepStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    SKIPPED = "SKIPPED"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class AutopilotRiskLevel(str, enum.Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+
+class AutopilotPlan(Base):
+    __tablename__ = "autopilot_plans"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False)
+    created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
+    goal: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[AutopilotPlanStatus] = mapped_column(
+        Enum(AutopilotPlanStatus, name="autopilot_plan_status"),
+        default=AutopilotPlanStatus.DRAFT,
+        index=True,
+        nullable=False,
+    )
+    plan_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ai_provider: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    ai_model: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    report_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, server_default=func.now())
+
+    steps: Mapped[list["AutopilotStep"]] = relationship(
+        back_populates="plan",
+        cascade="all, delete-orphan",
+        order_by="AutopilotStep.step_order",
+    )
+
+
+class AutopilotStep(Base):
+    __tablename__ = "autopilot_steps"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    plan_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("autopilot_plans.id", ondelete="CASCADE"), index=True, nullable=False)
+    step_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    action_key: Mapped[str] = mapped_column(String(60), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    arguments_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    evidence_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    preview_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    risk_level: Mapped[AutopilotRiskLevel] = mapped_column(
+        Enum(AutopilotRiskLevel, name="autopilot_risk_level"),
+        default=AutopilotRiskLevel.LOW,
+        nullable=False,
+    )
+    requires_approval: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    status: Mapped[AutopilotStepStatus] = mapped_column(
+        Enum(AutopilotStepStatus, name="autopilot_step_status"),
+        default=AutopilotStepStatus.PENDING,
+        index=True,
+        nullable=False,
+    )
+    result_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    plan: Mapped["AutopilotPlan"] = relationship(back_populates="steps")

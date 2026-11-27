@@ -7,7 +7,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.ai.context import (
@@ -16,12 +15,14 @@ from app.ai.context import (
     redact_sql_literals,
     redacted_text,
 )
+from app.ai.actions import ACTION_REGISTRY, ActionValidationError, get_action, validate_action_arguments
 from app.ai.drafts import (
     InvalidAIDraft,
     parse_json_object,
     validate_pipeline_draft,
     validate_transformation_draft,
 )
+from app.ai.engine import check_ai_limits, run_structured_task
 from app.ai.prompts import build_chat_messages, build_task_messages
 from app.ai.recommendations import build_recommendations
 from app.ai.providers import (
@@ -45,6 +46,11 @@ from app.models.entities import (
     AIMessage,
     AIRecommendation,
     AIUsage,
+    AutopilotPlan,
+    AutopilotPlanStatus,
+    AutopilotRiskLevel,
+    AutopilotStep,
+    AutopilotStepStatus,
     Dataset,
     User,
     utcnow,
@@ -88,35 +94,7 @@ def _configured_provider(settings: Settings) -> AIProvider:
 
 
 def _check_ai_limits(db: Session, workspace_id: UUID, user: User, settings: Settings) -> None:
-    scope = f"{workspace_id}:{user.id}"
-    check_database_rate_limit(
-        db,
-        scope,
-        "ai_generation",
-        attempts=settings.ai_rate_limit_requests,
-        window_seconds=settings.ai_rate_limit_window_seconds,
-    )
-    if settings.ai_daily_token_limit == 0:
-        return
-    since = datetime.now(timezone.utc) - timedelta(days=1)
-    total_tokens = db.query(
-        func.coalesce(
-            func.sum(
-                func.coalesce(AIUsage.input_tokens, 0)
-                + func.coalesce(AIUsage.output_tokens, 0)
-            ),
-            0,
-        )
-    ).filter(
-        AIUsage.workspace_id == workspace_id,
-        AIUsage.user_id == user.id,
-        AIUsage.created_at >= since,
-    ).scalar() or 0
-    if total_tokens >= settings.ai_daily_token_limit:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="The workspace AI token limit has been reached for today",
-        )
+    check_ai_limits(db, workspace_id, user, settings)
 
 
 def _audit_context(
@@ -418,15 +396,18 @@ def list_ai_tools(
     return available_tools(member.role.value, page_type)
 
 
-@router.post(
-    "/{workspace_id}/ai/recommendations",
-    response_model=list[AIRecommendationResponse],
-)
-def create_recommendations(
+def _persist_recommendations(
+    db: Session,
     workspace_id: UUID,
-    payload: AIRecommendationsRequest,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User,
+    *,
+    page_type: str,
+    active_view: str | None = None,
+    dataset_id: UUID | None = None,
+    table_id: UUID | None = None,
+    pipeline_id: UUID | None = None,
+    catalog_asset_id: UUID | None = None,
+    sql_text: str | None = None,
 ) -> list[dict[str, Any]]:
     member = membership(db, workspace_id, user.id)
     settings = get_settings()
@@ -442,22 +423,22 @@ def create_recommendations(
         workspace_id,
         user,
         settings,
-        dataset_id=payload.dataset_id,
-        table_id=payload.table_id,
-        pipeline_id=payload.pipeline_id,
-        catalog_asset_id=payload.catalog_asset_id,
-        page_type=payload.page_type,
-        active_view=payload.active_view,
+        dataset_id=dataset_id,
+        table_id=table_id,
+        pipeline_id=pipeline_id,
+        catalog_asset_id=catalog_asset_id,
+        page_type=page_type,
+        active_view=active_view,
         include_audit=member.role.value in {"OWNER", "ADMIN"},
-        query_text=payload.sql_text[: min(settings.ai_max_context_chars, settings.ai_max_input_chars // 3)] if payload.sql_text else None,
+        query_text=sql_text[: min(settings.ai_max_context_chars, settings.ai_max_input_chars // 3)] if sql_text else None,
     )
     _audit_context(db, workspace_id, user.id, resource_count)
-    recommendations = build_recommendations(context, payload.page_type, member.role.value)
+    recommendations = build_recommendations(context, page_type, member.role.value)
     rows = [
         AIRecommendation(
             workspace_id=workspace_id,
             user_id=user.id,
-            page_type=payload.page_type,
+            page_type=page_type,
             category=item["category"],
             title=item["title"],
             description=item["description"],
@@ -478,6 +459,78 @@ def create_recommendations(
     return [_recommendation_json(row) for row in rows]
 
 
+@router.get(
+    "/{workspace_id}/ai/recommendations",
+    response_model=list[AIRecommendationResponse],
+)
+def list_recommendations(
+    workspace_id: UUID,
+    page_type: str = Query(default="dashboard", max_length=30),
+    dataset_id: UUID | None = Query(default=None),
+    table_id: UUID | None = Query(default=None),
+    refresh: bool = Query(default=True),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    membership(db, workspace_id, user.id)
+    if refresh:
+        return _persist_recommendations(
+            db,
+            workspace_id,
+            user,
+            page_type=page_type,
+            dataset_id=dataset_id,
+            table_id=table_id,
+        )
+    rows = db.query(AIRecommendation).filter(
+        AIRecommendation.workspace_id == workspace_id,
+        AIRecommendation.user_id == user.id,
+        AIRecommendation.page_type == page_type,
+        AIRecommendation.status == "PROPOSED",
+    ).order_by(AIRecommendation.created_at.desc()).limit(20).all()
+    return [_recommendation_json(row) for row in rows]
+
+
+@router.post(
+    "/{workspace_id}/ai/recommendations",
+    response_model=list[AIRecommendationResponse],
+)
+def create_recommendations(
+    workspace_id: UUID,
+    payload: AIRecommendationsRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    return _persist_recommendations(
+        db,
+        workspace_id,
+        user,
+        page_type=payload.page_type,
+        active_view=payload.active_view,
+        dataset_id=payload.dataset_id,
+        table_id=payload.table_id,
+        pipeline_id=payload.pipeline_id,
+        catalog_asset_id=payload.catalog_asset_id,
+        sql_text=payload.sql_text,
+    )
+
+
+def _scoped_recommendation(
+    db: Session,
+    workspace_id: UUID,
+    user_id: UUID,
+    recommendation_id: UUID,
+) -> AIRecommendation:
+    recommendation = db.query(AIRecommendation).filter(
+        AIRecommendation.id == recommendation_id,
+        AIRecommendation.workspace_id == workspace_id,
+        AIRecommendation.user_id == user_id,
+    ).first()
+    if not recommendation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recommendation not found")
+    return recommendation
+
+
 @router.post(
     "/{workspace_id}/ai/recommendations/{recommendation_id}/feedback",
     response_model=AIRecommendationResponse,
@@ -490,13 +543,7 @@ def record_recommendation_feedback(
     user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     membership(db, workspace_id, user.id)
-    recommendation = db.query(AIRecommendation).filter(
-        AIRecommendation.id == recommendation_id,
-        AIRecommendation.workspace_id == workspace_id,
-        AIRecommendation.user_id == user.id,
-    ).first()
-    if not recommendation:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recommendation not found")
+    recommendation = _scoped_recommendation(db, workspace_id, user.id, recommendation_id)
     if recommendation.status != "PROPOSED":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Recommendation feedback has already been recorded")
     recommendation.status = payload.decision
@@ -513,6 +560,103 @@ def record_recommendation_feedback(
     db.commit()
     db.refresh(recommendation)
     return _recommendation_json(recommendation)
+
+
+@router.post(
+    "/{workspace_id}/ai/recommendations/{recommendation_id}/dismiss",
+    response_model=AIRecommendationResponse,
+)
+def dismiss_recommendation(
+    workspace_id: UUID,
+    recommendation_id: UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    membership(db, workspace_id, user.id)
+    recommendation = _scoped_recommendation(db, workspace_id, user.id, recommendation_id)
+    if recommendation.status != "PROPOSED":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Recommendation feedback has already been recorded")
+    recommendation.status = "DISMISSED"
+    recommendation.decision_at = utcnow()
+    record_audit(
+        db,
+        workspace_id,
+        user.id,
+        "AI_RECOMMENDATION_DISMISSED",
+        "ai_recommendation",
+        recommendation.id,
+        {"tool": (recommendation.proposed_action_json or {}).get("tool")},
+    )
+    db.commit()
+    db.refresh(recommendation)
+    return _recommendation_json(recommendation)
+
+
+@router.post("/{workspace_id}/ai/recommendations/{recommendation_id}/accept")
+def accept_recommendation(
+    workspace_id: UUID,
+    recommendation_id: UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    membership(db, workspace_id, user.id)
+    recommendation = _scoped_recommendation(db, workspace_id, user.id, recommendation_id)
+    if recommendation.status != "PROPOSED":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Recommendation feedback has already been recorded")
+    proposed = recommendation.proposed_action_json or {}
+    tool = proposed.get("tool")
+    arguments = proposed.get("arguments") or {}
+    if not isinstance(tool, str) or tool not in ACTION_REGISTRY:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Recommendation action is not an Autopilot allowlisted action",
+        )
+    if not isinstance(arguments, dict):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Recommendation arguments are invalid")
+    try:
+        safe_args = validate_action_arguments(db, workspace_id, tool, arguments)
+        action = get_action(tool)
+    except ActionValidationError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Recommendation action could not be validated: {error}",
+        ) from error
+
+    plan = AutopilotPlan(
+        workspace_id=workspace_id,
+        created_by=user.id,
+        goal=recommendation.title,
+        status=AutopilotPlanStatus.DRAFT,
+        ai_provider=None,
+        ai_model=None,
+    )
+    db.add(plan)
+    db.flush()
+    db.add(AutopilotStep(
+        plan_id=plan.id,
+        step_order=1,
+        action_key=action.key,
+        title=recommendation.title[:200],
+        rationale=recommendation.description,
+        arguments_json=safe_args,
+        evidence_json=recommendation.evidence_json or [],
+        risk_level=AutopilotRiskLevel(action.risk_level),
+        requires_approval=action.requires_approval,
+        status=AutopilotStepStatus.PENDING,
+    ))
+    recommendation.status = "ACCEPTED"
+    recommendation.decision_at = utcnow()
+    record_audit(
+        db,
+        workspace_id,
+        user.id,
+        "AI_RECOMMENDATION_ACCEPTED",
+        "ai_recommendation",
+        recommendation.id,
+        {"tool": tool, "plan_id": str(plan.id)},
+    )
+    db.commit()
+    return {"recommendation_id": str(recommendation.id), "plan_id": str(plan.id)}
 
 
 @router.get("/{workspace_id}/ai/conversations", response_model=list[AIConversationResponse])
@@ -705,36 +849,33 @@ def generate_sql(
 ) -> dict[str, Any]:
     membership(db, workspace_id, user.id)
     settings = get_settings()
-    provider, result, duration = _run_context_task(
-        workspace_id,
-        user,
-        db,
-        settings,
-        "Generate one read-only DuckDB SELECT query for this workspace",
-        (
-            f"{payload.prompt.strip()}\nReturn only JSON with keys sql and explanation. "
-            "The sql value must contain exactly one SELECT or UNION query and may reference only listed workspace tables."
-        ),
-        query_text=payload.sql_text[: min(settings.ai_max_context_chars, settings.ai_max_input_chars // 3)] if payload.sql_text else None,
-    )
-    try:
-        value = parse_json_object(result.text)
+
+    def validator(value: dict[str, Any]) -> dict[str, Any]:
         sql = value.get("sql")
         explanation = value.get("explanation")
         if not isinstance(sql, str) or not isinstance(explanation, str):
             raise InvalidAIDraft("SQL draft fields were missing")
         table_names, _ = validate_read_only_sql(sql)
         resolve_catalog(db, workspace_id, table_names)
-    except (InvalidAIDraft, SQLValidationError, KeyError) as error:
-        _store_generation(db, workspace_id, user.id, provider, result, duration, "REJECTED")
-        record_audit(db, workspace_id, user.id, "AI_SQL_DRAFT_REJECTED", "ai_draft", None)
-        db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Generated SQL did not pass workspace read-only validation",
-        ) from error
-    _store_generation(db, workspace_id, user.id, provider, result, duration)
-    return {"sql": sql, "explanation": explanation, "validated": True}
+        return {"sql": sql, "explanation": explanation, "validated": True}
+
+    result = run_structured_task(
+        db,
+        workspace_id,
+        user,
+        settings,
+        provider=_configured_provider(settings),
+        task="Generate one read-only DuckDB SELECT query for this workspace",
+        request=(
+            f"{payload.prompt.strip()}\nReturn only JSON with keys sql and explanation. "
+            "The sql value must contain exactly one SELECT or UNION query and may reference only listed workspace tables."
+        ),
+        validator=validator,
+        query_text=payload.sql_text[: min(settings.ai_max_context_chars, settings.ai_max_input_chars // 3)] if payload.sql_text else None,
+        audit_rejected_action="AI_SQL_DRAFT_REJECTED",
+        reject_detail="Generated SQL did not pass workspace read-only validation",
+    )
+    return result.value
 
 
 def _explain_sql(

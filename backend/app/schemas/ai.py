@@ -21,6 +21,7 @@ AIPageType = Literal[
     "audit",
     "workspace",
     "ai",
+    "autopilot",
 ]
 
 
@@ -70,7 +71,7 @@ class AIRecommendationResponse(BaseModel):
     risk_level: Literal["LOW", "MEDIUM", "HIGH"]
     required_permissions: list[str]
     approval_required: bool
-    status: Literal["PROPOSED", "ACCEPTED", "REJECTED"]
+    status: Literal["PROPOSED", "ACCEPTED", "REJECTED", "DISMISSED"]
     created_at: datetime
 
 

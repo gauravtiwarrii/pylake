@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
   Bell,
+  Bot,
   Braces,
   ChevronDown,
   Database,
@@ -43,6 +44,7 @@ const navigation = [
   { label: "Lakehouse", href: "lakehouse", icon: FolderKanban },
   { label: "SQL Workspace", href: "sql", icon: Braces },
   { label: "AI Copilot", href: "ai", icon: Sparkles },
+  { label: "Autopilot", href: "autopilot", icon: Bot },
   { label: "Pipelines", href: "pipelines", icon: Workflow },
   { label: "Data Catalog", href: "catalog", icon: Search },
   { label: "Monitoring", href: "pipelines", icon: BarChart3 },

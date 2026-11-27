@@ -365,6 +365,10 @@ The migration adds `ai_conversations`, `ai_messages`, and `ai_usage`. To reverse
 
 The Copilot is available from the workspace sidebar at `/workspaces/{workspaceId}/ai`, from the collapsible application-shell panel, and through contextual actions in Data Explorer, SQL Workspace, and Pipelines. See [the user guide](docs/AI_COPILOT_USER_GUIDE.md) for interaction details.
 
+### Milestone 10 Autopilot
+
+Autopilot turns a goal or a set of manual steps into a workspace-scoped plan. Review the no-write preview, approve its plan hash, and then execute explicitly. AI planning is optional; see [the Autopilot guide](docs/AUTOPILOT.md) for supported actions, roles, approval behavior, and execution limits.
+
 ## Direct uploads (Vercel / S3 / R2)
 
 Vercel function payloads are capped at ~4.5 MB and the filesystem is ephemeral, so multipart uploads through the backend do not work for large files in production. Setting `DIRECT_UPLOAD_ENABLED=true` switches the upload dialog to a three-step flow:
