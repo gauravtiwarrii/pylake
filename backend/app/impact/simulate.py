@@ -94,7 +94,7 @@ def simulate_change(db: Session, workspace_id: UUID, asset_id: UUID, change: dic
             if edge["source"] in frontier and edge["target"] not in reachable:
                 following.add(edge["target"])
                 target_node = next((item for item in graph["nodes"] if item["id"] == edge["target"]), None)
-                if target_node and target_node["type"] != "column":
+                if target_node and target_node["type"] not in {"column", "dataset", "dataset_version"}:
                     downstream.append({**target_node, "depth": level, "evidence": edge["evidence"],
                         "confidence": edge["confidence"]})
         reachable.update(following)

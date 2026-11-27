@@ -307,7 +307,9 @@ def catalog_impact(
         "downstream_asset_count": len(downstream_assets),
         "downstream_assets": downstream_assets,
         "pipelines": pipelines,
-        "coverage": "RECORDED_AND_PARSED_DEPENDENCIES",
-        "unknown_dependencies": graph["uncovered"],
+        "coverage": "RECORDED_DEPENDENCIES",
+        "coverage_detail": "RECORDED_AND_PARSED_DEPENDENCIES",
+        "unknown_dependencies": "Unknown assets and external dependencies are not included",
+        "uncovered": graph["uncovered"],
         "graph": graph,
     }
