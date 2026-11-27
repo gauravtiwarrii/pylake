@@ -37,6 +37,7 @@ const actionLabels: Record<string, string> = {
   run_readonly_sql: "Run read-only SQL",
   create_pipeline: "Create pipeline",
   create_schedule: "Create schedule",
+  compute_trust: "Compute Trust Passport",
 };
 
 const actionTemplate = (action: string, datasetId: string): Record<string, unknown> => {
@@ -47,6 +48,7 @@ const actionTemplate = (action: string, datasetId: string): Record<string, unkno
     case "run_readonly_sql": return { sql: "SELECT * FROM customers LIMIT 100", limit: 100 };
     case "create_pipeline": return { name: "New pipeline", description: null, steps: [] };
     case "create_schedule": return { pipeline_id: "", cron_expression: "0 9 * * *", timezone: "UTC", enabled: true };
+    case "compute_trust": return { asset_id: "" };
     default: return {};
   }
 };

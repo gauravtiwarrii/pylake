@@ -1,4 +1,5 @@
 import signal
+import logging
 import tempfile
 import time
 import uuid
@@ -28,6 +29,9 @@ from app.services.lakehouse import copy_source_to_temp
 from app.storage.factory import get_storage
 from app.services.catalog import ensure_dataset_asset, ensure_table_asset
 from app.services.lineage import record_lineage
+from app.services import trust as trust_service
+
+logger = logging.getLogger("pylake.pipeline")
 
 
 def utcnow():
@@ -320,6 +324,8 @@ def execute_step(db, run_id: uuid.UUID, workspace_id: uuid.UUID, user_id: uuid.U
                 raise ValueError("Data quality null threshold exceeded")
             if maximum_duplicate is not None and summary["duplicate_rows"] > int(maximum_duplicate):
                 raise ValueError("Data quality duplicate threshold exceeded")
+            asset = ensure_table_asset(db, workspace_id, table)
+            trust_service.compute_trust_best_effort(db, storage, workspace_id, asset, "DATA_QUALITY", user_id)
             return summary
         finally:
             directory.cleanup()

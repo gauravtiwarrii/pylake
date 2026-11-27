@@ -77,6 +77,21 @@ class StepStatus(str, enum.Enum):
     SKIPPED = "SKIPPED"
 
 
+class QualityRuleType(str, enum.Enum):
+    NOT_NULL = "NOT_NULL"
+    UNIQUE = "UNIQUE"
+    RANGE = "RANGE"
+    REGEX = "REGEX"
+    ALLOWED_VALUES = "ALLOWED_VALUES"
+    MIN_ROW_COUNT = "MIN_ROW_COUNT"
+
+
+class QualityRuleSeverity(str, enum.Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -272,6 +287,7 @@ class CatalogAsset(Base):
     lakehouse_table_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("lakehouse_tables.id", ondelete="CASCADE"), index=True, nullable=True)
     format: Mapped[str | None] = mapped_column(String(20), nullable=True)
     layer: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    freshness_target_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, server_default=func.now())
 
@@ -311,6 +327,41 @@ class CatalogSchemaHistory(Base):
     version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("dataset_versions.id", ondelete="SET NULL"), index=True, nullable=True)
     schema_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+
+
+class QualityRule(Base):
+    __tablename__ = "quality_rules"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False)
+    asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("catalog_assets.id", ondelete="CASCADE"), index=True, nullable=False)
+    column_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    rule_type: Mapped[QualityRuleType] = mapped_column(Enum(QualityRuleType, name="quality_rule_type"), nullable=False)
+    config_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    severity: Mapped[QualityRuleSeverity] = mapped_column(Enum(QualityRuleSeverity, name="quality_rule_severity"), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, server_default=func.now())
+
+
+class TrustSnapshot(Base):
+    __tablename__ = "trust_snapshots"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False)
+    asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("catalog_assets.id", ondelete="CASCADE"), index=True, nullable=False)
+    version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("dataset_versions.id", ondelete="SET NULL"), index=True, nullable=True)
+    overall_score: Mapped[float | None] = mapped_column(nullable=True)
+    metrics_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    rule_results_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    limitations_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    sample_rows: Mapped[int] = mapped_column(Integer, nullable=False)
+    total_rows: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    sampled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    trigger: Mapped[str] = mapped_column(String(30), nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True)
 
 
 class LineageEdge(Base):

@@ -29,6 +29,7 @@ type PipelineMetrics = {
 type WorkerHealth = { workers: { worker_id: string; status: string; last_seen_at: string }[] };
 type Run = { id: string; status: string; created_at: string; duration_ms: number | null };
 type Member = { id: string; user_id: string; role: "OWNER" | "ADMIN" | "EDITOR" | "VIEWER"; email?: string | null; full_name?: string | null };
+type TrustSummary = { items: { asset_id: string; name: string; overall_score: number | null }[]; total: number };
 
 function memberLabel(member: Member): string {
   return member.full_name?.trim() || member.email || "Unknown member";
@@ -53,9 +54,10 @@ export default function WorkspaceOverviewPage({ params }: { params: Promise<{ wo
   const [runs, setRuns] = useState<Run[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [error, setError] = useState("");
+  const [trustSummary, setTrustSummary] = useState<TrustSummary | null>(null);
 
   const load = useCallback(async () => {
-    const [workspaceResult, datasetResult, tableResult, usageResult, metricsResult, workerResult, runResult, memberResult] = await Promise.all([
+    const [workspaceResult, datasetResult, tableResult, usageResult, metricsResult, workerResult, runResult, memberResult, trustResult] = await Promise.all([
       api<Workspace>(`/api/v1/workspaces/${workspaceId}`),
       api<DatasetList>(`/api/v1/workspaces/${workspaceId}/datasets?page=1&page_size=1`),
       api<LakehouseTable[]>(`/api/v1/workspaces/${workspaceId}/lakehouse/tables`),
@@ -64,6 +66,7 @@ export default function WorkspaceOverviewPage({ params }: { params: Promise<{ wo
       api<WorkerHealth>(`/api/v1/workspaces/${workspaceId}/workers/health`),
       api<{ id: string }[]>(`/api/v1/workspaces/${workspaceId}/pipelines`),
       api<Member[]>(`/api/v1/workspaces/${workspaceId}/members`),
+      api<TrustSummary>(`/api/v1/workspaces/${workspaceId}/trust/summary?limit=1`),
     ]);
     if (workspaceResult.error) setError(workspaceResult.error);
     else setWorkspace(workspaceResult.data ?? null);
@@ -85,6 +88,7 @@ export default function WorkspaceOverviewPage({ params }: { params: Promise<{ wo
       setRuns([]);
     }
     setMembers(memberResult.data ?? []);
+    if (trustResult.data) setTrustSummary(trustResult.data);
   }, [workspaceId]);
 
   useEffect(() => {
@@ -125,6 +129,7 @@ export default function WorkspaceOverviewPage({ params }: { params: Promise<{ wo
           <MetricCard title="Pipeline runs" value={metrics?.total_runs ?? 0} icon={Workflow} detail={`${metrics?.status_distribution?.SUCCEEDED ?? 0} successful`} />
           <MetricCard title="Storage" value={formatBytes(storage.total_bytes)} icon={Activity} detail={`${workersOnline} active workers`} />
         </div>
+        {trustSummary?.items[0] && <Link href={`/workspaces/${workspaceId}/catalog`} className="mt-4 flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 hover:border-[var(--border-strong)]"><span><span className="block text-sm font-semibold">Lowest trust</span><span className="mt-1 block text-xs text-[var(--muted)]">{trustSummary.items[0].name}</span></span><span className="text-xl font-semibold tabular-nums">{trustSummary.items[0].overall_score == null ? "Not measured" : `${trustSummary.items[0].overall_score.toFixed(0)} / 100`}</span></Link>}
 
         <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,.8fr)]">
           <section className="rounded-xl border border-[var(--border)] bg-[var(--surface)]">

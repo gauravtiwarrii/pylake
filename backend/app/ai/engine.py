@@ -125,29 +125,33 @@ def run_structured_task(
     active_view: str | None = None,
     include_audit: bool = False,
     query_text: str | None = None,
+    context_override: dict[str, Any] | None = None,
     audit_rejected_action: str | None = None,
     reject_detail: str = "Generated content did not pass validation",
 ) -> EngineResult:
     """Build context, call the provider, parse JSON, and run the caller validator."""
     provider = provider if provider is not None else _configured_provider(settings)
     check_ai_limits(db, workspace_id, user, settings)
-    try:
-        context, resource_count = build_workspace_context(
-            db,
-            workspace_id,
-            user.id,
-            settings,
-            dataset_id=dataset_id,
-            table_id=table_id,
-            pipeline_id=pipeline_id,
-            catalog_asset_id=catalog_asset_id,
-            page_type=page_type,
-            active_view=active_view,
-            include_audit=include_audit,
-            query_text=query_text,
-        )
-    except WorkspaceResourceNotFound as error:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
+    if context_override is not None:
+        context, resource_count = context_override, 0
+    else:
+        try:
+            context, resource_count = build_workspace_context(
+                db,
+                workspace_id,
+                user.id,
+                settings,
+                dataset_id=dataset_id,
+                table_id=table_id,
+                pipeline_id=pipeline_id,
+                catalog_asset_id=catalog_asset_id,
+                page_type=page_type,
+                active_view=active_view,
+                include_audit=include_audit,
+                query_text=query_text,
+            )
+        except WorkspaceResourceNotFound as error:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error)) from error
 
     record_audit(
         db,

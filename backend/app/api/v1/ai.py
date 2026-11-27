@@ -46,6 +46,8 @@ from app.models.entities import (
     AIMessage,
     AIRecommendation,
     AIUsage,
+    CatalogAsset,
+    TrustSnapshot,
     AutopilotPlan,
     AutopilotPlanStatus,
     AutopilotRiskLevel,
@@ -434,6 +436,44 @@ def _persist_recommendations(
     )
     _audit_context(db, workspace_id, user.id, resource_count)
     recommendations = build_recommendations(context, page_type, member.role.value)
+    asset_query = db.query(CatalogAsset).filter(CatalogAsset.workspace_id == workspace_id)
+    if catalog_asset_id:
+        asset_query = asset_query.filter(CatalogAsset.id == catalog_asset_id)
+    elif table_id:
+        asset_query = asset_query.filter(CatalogAsset.asset_type == "TABLE", CatalogAsset.lakehouse_table_id == table_id)
+    elif dataset_id:
+        asset_query = asset_query.filter(CatalogAsset.asset_type == "DATASET", CatalogAsset.dataset_id == dataset_id)
+    else:
+        asset_query = None
+    asset = asset_query.first() if asset_query is not None else None
+    snapshot = db.query(TrustSnapshot).filter(TrustSnapshot.workspace_id == workspace_id,
+        TrustSnapshot.asset_id == asset.id).order_by(TrustSnapshot.computed_at.desc()).first() if asset else None
+    if snapshot:
+        metrics = snapshot.metrics_json
+        completeness = metrics.get("completeness", {})
+        if completeness.get("status") == "MEASURED" and completeness.get("score") is not None and completeness["score"] < 70:
+            by_column = (completeness.get("value") or {}).get("column_null_percent", {})
+            column, null_percent = max(by_column.items(), key=lambda pair: pair[1]) if by_column else (None, None)
+            if column:
+                recommendations.append({
+                    "category": "data_quality", "title": f"Enforce non-null {column}",
+                    "description": f"The latest measured completeness score is {completeness['score']:.1f}/100. Review and enforce the observed null pattern before changing data.",
+                    "evidence": [{"source": "trust_snapshot", "detail": f"Measured column null rate for {column}: {null_percent:.2f}% across {snapshot.sample_rows} sampled rows (snapshot {snapshot.id})."}],
+                    "confidence": "HIGH", "expected_impact": "Prevent new nulls in the measured column after review.",
+                    "proposed_action": {"tool": "create_quality_rule", "arguments": {"asset_id": str(asset.id), "column_name": column, "rule_type": "NOT_NULL", "config_json": {}, "severity": "HIGH", "enabled": True}},
+                    "risk_level": "MEDIUM", "required_permissions": ["EDITOR"], "approval_required": True,
+                })
+        uniqueness = metrics.get("uniqueness", {})
+        if asset.asset_type == "TABLE" and uniqueness.get("status") == "MEASURED" and uniqueness.get("score") is not None and uniqueness["score"] < 70:
+            recommendations.append({
+                "category": "data_quality", "title": f"Review duplicate rows in {asset.name}",
+                "description": f"The latest measured whole-row uniqueness score is {uniqueness['score']:.1f}/100. Preview a deduplication draft and approve it before execution.",
+                "evidence": [{"source": "trust_snapshot", "detail": f"Measured {uniqueness.get('value', {}).get('duplicate_rows', 0)} duplicate rows among {snapshot.sample_rows} sampled rows (snapshot {snapshot.id})."}],
+                "confidence": "HIGH", "expected_impact": "Remove duplicate whole rows from the reviewed output version.",
+                "proposed_action": {"tool": "apply_transformation", "arguments": {"table_id": str(asset.lakehouse_table_id), "transformation_type": "deduplicate", "configuration": {}, "target_layer": "SILVER"}},
+                "risk_level": "MEDIUM", "required_permissions": ["EDITOR"], "approval_required": True,
+            })
+    recommendations = recommendations[:3]
     rows = [
         AIRecommendation(
             workspace_id=workspace_id,

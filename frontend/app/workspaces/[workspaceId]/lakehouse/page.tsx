@@ -22,6 +22,7 @@ import {
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { useAIPageContext } from "@/components/ai-page-context";
+import { TrustPassport } from "@/components/trust/TrustPassport";
 
 type Layer = "BRONZE" | "SILVER" | "GOLD";
 type Role = "OWNER" | "ADMIN" | "EDITOR" | "VIEWER";
@@ -98,7 +99,7 @@ type ConfirmAction = {
   sourceVersion: Version;
   targetLayer: Exclude<Layer, "BRONZE">;
 };
-type Tab = "overview" | "schema" | "preview" | "versions" | "quality" | "lineage" | "transform";
+type Tab = "overview" | "schema" | "preview" | "versions" | "quality" | "trust" | "lineage" | "transform";
 
 const layers: { id: Layer; title: string; subtitle: string; description: string; icon: typeof Database }[] = [
   { id: "BRONZE", title: "Bronze", subtitle: "Source", description: "Original ingested data", icon: Database },
@@ -111,6 +112,7 @@ const tabs: { id: Tab; label: string }[] = [
   { id: "preview", label: "Preview" },
   { id: "versions", label: "Versions" },
   { id: "quality", label: "Quality" },
+  { id: "trust", label: "Trust" },
   { id: "lineage", label: "Lineage" },
   { id: "transform", label: "Transform" },
 ];
@@ -195,7 +197,7 @@ export default function LakehousePage({ params }: { params: Promise<{ workspaceI
   const detailRequestId = useRef(0);
   const qualityRequestId = useRef(0);
   useAIPageContext({
-    page_type: tab === "quality" ? "quality" : tab === "lineage" ? "lineage" : "lakehouse",
+    page_type: tab === "quality" || tab === "trust" ? "quality" : tab === "lineage" ? "lineage" : "lakehouse",
     table_id: selected?.id,
     active_view: tab,
   });
@@ -739,6 +741,7 @@ export default function LakehousePage({ params }: { params: Promise<{ workspaceI
                           </div>
                         ) : <EmptyState title="Quality data unavailable" detail="The backend did not return quality metrics for this version." />
                       )}
+                      {tab === "trust" && selected && tableAssetId && <TrustPassport workspaceId={workspaceId} assetId={tableAssetId} tableId={selected.id} canEdit={role === "OWNER" || role === "ADMIN" || role === "EDITOR"} />}
 
                       {tab === "lineage" && (
                         <div className="space-y-4">

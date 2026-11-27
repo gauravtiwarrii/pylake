@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.drafts import validate_pipeline_draft, validate_transformation_draft
 from app.ai.tools import ROLE_RANK
+from app.core.audit import record_audit
 from app.engines.query_executor import execute_workspace_query
 from app.engines.query_validator import SQLValidationError, validate_read_only_sql
 from app.engines.catalog_resolver import resolve_catalog
@@ -30,12 +31,18 @@ from app.models.entities import (
     PipelineSchedule,
     PipelineStatus,
     PipelineStep,
+    CatalogAsset,
+    QualityRule,
+    QualityRuleSeverity,
+    QualityRuleType,
     StorageObject,
     TransformationRecord,
     TransformationStatus,
     User,
 )
 from app.schemas.lakehouse import PromoteRequest
+from app.schemas.trust import QualityRuleCreate
+from app.services import trust as trust_service
 from app.services.catalog import ensure_dataset_asset, ensure_table_asset, profile_asset
 from app.services.lakehouse import (
     checksum_file,
@@ -95,6 +102,14 @@ class CreateScheduleArgs(BaseModel):
     cron_expression: str = Field(min_length=9, max_length=200)
     timezone: str = "UTC"
     enabled: bool = True
+
+
+class ComputeTrustArgs(BaseModel):
+    asset_id: UUID
+
+
+class CreateQualityRuleArgs(QualityRuleCreate):
+    asset_id: UUID
 
 
 @dataclass(frozen=True)
@@ -676,6 +691,54 @@ def _execute_schedule(db: Session, workspace_id: UUID, user: User, args: dict[st
     }
 
 
+def _preview_trust(db: Session, workspace_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+    payload = ComputeTrustArgs.model_validate(args)
+    asset = db.query(CatalogAsset).filter(CatalogAsset.id == payload.asset_id,
+        CatalogAsset.workspace_id == workspace_id).first()
+    if not asset:
+        raise ActionValidationError("Catalog asset not found in workspace")
+    return {"action": "compute_trust", "asset_id": str(asset.id), "asset_name": asset.name,
+            "writes": False, "note": "Preview only — no snapshot is stored until execution."}
+
+
+def _execute_trust(db: Session, workspace_id: UUID, user: User, args: dict[str, Any]) -> dict[str, Any]:
+    payload = ComputeTrustArgs.model_validate(args)
+    asset = db.query(CatalogAsset).filter(CatalogAsset.id == payload.asset_id,
+        CatalogAsset.workspace_id == workspace_id).first()
+    if not asset:
+        raise ActionValidationError("Catalog asset not found in workspace")
+    snapshot = trust_service.compute_trust(db, get_storage(), workspace_id, asset, "AUTOPILOT", user.id)
+    return {"snapshot_id": snapshot["id"], "asset_id": str(asset.id),
+            "overall_score": snapshot["overall_score"], "sample_rows": snapshot["sample_rows"]}
+
+
+def _preview_quality_rule(db: Session, workspace_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+    payload = CreateQualityRuleArgs.model_validate(args)
+    asset = db.query(CatalogAsset).filter(CatalogAsset.id == payload.asset_id,
+        CatalogAsset.workspace_id == workspace_id).first()
+    if not asset:
+        raise ActionValidationError("Catalog asset not found in workspace")
+    return {"action": "create_quality_rule", "asset_id": str(asset.id), "asset_name": asset.name,
+            "rule_type": payload.rule_type, "column_name": payload.column_name,
+            "severity": payload.severity, "writes": False,
+            "note": "Preview only — the rule will be saved after approval."}
+
+
+def _execute_quality_rule(db: Session, workspace_id: UUID, user: User, args: dict[str, Any]) -> dict[str, Any]:
+    payload = CreateQualityRuleArgs.model_validate(args)
+    asset = db.query(CatalogAsset).filter(CatalogAsset.id == payload.asset_id,
+        CatalogAsset.workspace_id == workspace_id).first()
+    if not asset:
+        raise ActionValidationError("Catalog asset not found in workspace")
+    rule = QualityRule(workspace_id=workspace_id, asset_id=asset.id, column_name=payload.column_name,
+        rule_type=QualityRuleType(payload.rule_type), config_json=payload.config_json,
+        severity=QualityRuleSeverity(payload.severity), enabled=payload.enabled, created_by=user.id)
+    db.add(rule); db.flush()
+    record_audit(db, workspace_id, user.id, "QUALITY_RULE_CREATED", "quality_rule", rule.id,
+                 {"source": "autopilot", "rule_type": rule.rule_type.value})
+    return {"quality_rule_id": str(rule.id), "asset_id": str(asset.id), "rule_type": rule.rule_type.value}
+
+
 ACTION_REGISTRY: dict[str, ActionDefinition] = {
     "profile_dataset": ActionDefinition(
         key="profile_dataset",
@@ -736,6 +799,16 @@ ACTION_REGISTRY: dict[str, ActionDefinition] = {
         args_schema=CreateScheduleArgs,
         preview=_preview_schedule,
         execute=_execute_schedule,
+    ),
+    "compute_trust": ActionDefinition(
+        key="compute_trust", title="Compute Trust Passport", min_role="VIEWER",
+        risk_level="LOW", requires_approval=False, args_schema=ComputeTrustArgs,
+        preview=_preview_trust, execute=_execute_trust,
+    ),
+    "create_quality_rule": ActionDefinition(
+        key="create_quality_rule", title="Create quality rule", min_role="EDITOR",
+        risk_level="MEDIUM", requires_approval=True, args_schema=CreateQualityRuleArgs,
+        preview=_preview_quality_rule, execute=_execute_quality_rule,
     ),
 }
 

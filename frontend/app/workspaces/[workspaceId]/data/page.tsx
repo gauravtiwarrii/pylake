@@ -19,6 +19,8 @@ import {
 import { api, API_URL, describeHttpError } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { useAIPageContext } from "@/components/ai-page-context";
+import { TrustPassport } from "@/components/trust/TrustPassport";
+import { TrustBadge } from "@/components/trust/TrustBadge";
 
 type Dataset = {
   id: string;
@@ -105,8 +107,9 @@ export default function DataExplorerPage({ params }: { params: Promise<{ workspa
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadError, setUploadError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Dataset | null>(null);
-  const [detailTab, setDetailTab] = useState<"overview" | "preview" | "schema">("overview");
+  const [detailTab, setDetailTab] = useState<"overview" | "preview" | "schema" | "trust">("overview");
   const [canManage, setCanManage] = useState(false);
+  const [trustScores, setTrustScores] = useState<Record<string, number | null>>({});
   const fileInput = useRef<HTMLInputElement>(null);
   useAIPageContext({
     page_type: selected ? "dataset" : "data",
@@ -138,6 +141,15 @@ export default function DataExplorerPage({ params }: { params: Promise<{ workspa
     const timeout = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timeout);
   }, [load, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    Promise.all([api<{items:{asset_id:string;overall_score:number|null}[]}>(`/api/v1/workspaces/${workspaceId}/trust/summary?limit=100`), api<{items:{id:string;dataset_id?:string|null}[]}>(`/api/v1/workspaces/${workspaceId}/catalog?page=1&page_size=100`)]).then(([summary, catalog]) => {
+      if (!summary.data || !catalog.data) return;
+      const scores = Object.fromEntries(summary.data.items.map(item => [item.asset_id, item.overall_score]));
+      setTrustScores(Object.fromEntries(catalog.data.items.filter(asset => asset.dataset_id).map(asset => [asset.dataset_id!, scores[asset.id] ?? null])));
+    });
+  }, [workspaceId, user]);
 
   useEffect(() => {
     if (!user) return;
@@ -430,7 +442,7 @@ export default function DataExplorerPage({ params }: { params: Promise<{ workspa
                       <th className="px-4 font-medium">Format</th>
                       <th className="px-4 font-medium">Rows</th>
                       <th className="px-4 font-medium">Size</th>
-                      <th className="px-4 font-medium">Status</th>
+                      <th className="px-4 font-medium">Status</th><th className="px-4 font-medium">Trust</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[var(--border)]">
@@ -447,7 +459,7 @@ export default function DataExplorerPage({ params }: { params: Promise<{ workspa
                           <td className="px-4 py-3"><span className="rounded-md border border-[var(--border)] px-2 py-1 text-xs uppercase">{dataset.file_format}</span></td>
                           <td className="px-4 py-3 text-[var(--muted)]">{dataset.row_count?.toLocaleString() ?? "—"}</td>
                           <td className="px-4 py-3 text-[var(--muted)]">{sizeLabel(dataset.file_size_bytes)}</td>
-                          <td className="px-4 py-3"><IngestionStatus status={dataset.ingestion_status} /></td>
+                          <td className="px-4 py-3"><IngestionStatus status={dataset.ingestion_status} /></td><td className="px-4 py-3"><TrustBadge score={trustScores[dataset.id]} /></td>
                         </tr>
                       );
                     })}
@@ -481,7 +493,7 @@ export default function DataExplorerPage({ params }: { params: Promise<{ workspa
                     )}
                   </div>
                   <div className="mt-4 flex gap-1 border-b border-[var(--border)]">
-                    {(["overview", "preview", "schema"] as const).map((tab) => (
+                    {(["overview", "preview", "schema", "trust"] as const).map((tab) => (
                       <button key={tab} onClick={() => setDetailTab(tab)} className={`border-b px-3 py-2 text-xs capitalize ${detailTab === tab ? "border-[var(--accent)] text-[var(--foreground)]" : "border-transparent text-[var(--muted)]"}`}>{tab}</button>
                     ))}
                   </div>
@@ -534,6 +546,7 @@ export default function DataExplorerPage({ params }: { params: Promise<{ workspa
                       </div>
                     ) : <p className="text-sm text-[var(--muted)]">Schema metadata is unavailable.</p>
                   )}
+                  {detailTab === "trust" && selected && <TrustPassport workspaceId={workspaceId} datasetId={selected.id} canEdit={canManage} />}
                 </div>
               </>
             )}

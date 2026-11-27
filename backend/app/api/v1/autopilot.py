@@ -33,6 +33,7 @@ from app.models.entities import (
     AutopilotRiskLevel,
     AutopilotStep,
     AutopilotStepStatus,
+    CatalogAsset,
     User,
     WorkspaceRole,
     utcnow,
@@ -42,6 +43,8 @@ from app.schemas.autopilot import (
     AutopilotPlanCreate,
     AutopilotPlanResponse,
 )
+from app.services import trust as trust_service
+from app.storage.factory import get_storage
 
 logger = logging.getLogger("pylake.autopilot")
 router = APIRouter(prefix="/workspaces", tags=["autopilot"])
@@ -567,6 +570,15 @@ def execute_plan(
                 {"action_key": step.action_key, "duration_ms": int((time.perf_counter() - started) * 1000)},
             )
             db.commit()
+            if step.action_key in {"promote_table", "apply_transformation"}:
+                table_id = result.get("table_id") if isinstance(result, dict) else None
+                asset = db.query(CatalogAsset).filter(
+                    CatalogAsset.workspace_id == workspace_id,
+                    CatalogAsset.lakehouse_table_id == UUID(table_id),
+                    CatalogAsset.asset_type == "TABLE",
+                ).first() if table_id else None
+                if asset:
+                    trust_service.compute_trust_best_effort(db, get_storage(), workspace_id, asset, "LAKEHOUSE_VERSION", user.id)
         except ActionValidationError as error:
             db.rollback()
             logger.warning("Autopilot step failed plan_id=%s step=%s", plan.id, step.step_order)

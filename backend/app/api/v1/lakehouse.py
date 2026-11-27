@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import tempfile
 from pathlib import Path
 from uuid import UUID
@@ -42,8 +43,10 @@ from app.storage.factory import get_storage
 from app.core.audit import record_audit
 from app.services.catalog import ensure_dataset_asset, ensure_table_asset
 from app.services.lineage import record_lineage
+from app.services import trust as trust_service
 
 router = APIRouter(prefix="/workspaces", tags=["lakehouse"])
+logger = logging.getLogger("pylake.lakehouse")
 
 
 def scoped_table(db: Session, workspace_id: UUID, table_id: UUID) -> LakehouseTable:
@@ -243,6 +246,7 @@ def promote_table(
         )
         db.commit()
         db.refresh(version)
+        trust_service.compute_trust_best_effort(db, storage, workspace_id, target_asset, "LAKEHOUSE_VERSION", user.id)
         output_dir.cleanup()
         return version
     finally:
@@ -430,6 +434,7 @@ def transform_table(
         )
         db.commit()
         db.refresh(version)
+        trust_service.compute_trust_best_effort(db, storage, workspace_id, target_asset, "LAKEHOUSE_VERSION", user.id)
         output_dir.cleanup()
         return version
     except Exception as error:

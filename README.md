@@ -472,3 +472,7 @@ python -m alembic stamp head
 This records the current migration version without running migrations or changing data. Only run it when the tables already match the latest models.
 
 The Railway worker service does **not** expose a port or health-check endpoint; remove any Railway-generated health check from the service settings.
+
+## Data Trust Passport
+
+The Data Trust Passport computes measurement-backed quality scores, tracks quality rules and score history, and explains which dimensions could not be measured. Missing evidence is excluded from the overall score. See [docs/TRUST_PASSPORT.md](docs/TRUST_PASSPORT.md) for formulas, sampling, triggers, and security details. AI explanations are optional estimates based on aggregate measurements only.

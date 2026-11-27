@@ -18,6 +18,7 @@ from app.core.db import get_db
 from app.models.entities import Dataset, DatasetStatus, User, WorkspaceRole
 from app.schemas.datasets import DatasetListResponse, DatasetResponse, PreviewResponse
 from app.services.catalog import ensure_dataset_asset
+from app.services import trust as trust_service
 from app.services.ingestion import detect_format, inspect_file, preview_file, sanitize_filename
 from app.services.lakehouse import ensure_bronze_version
 from app.storage.factory import get_storage
@@ -115,7 +116,8 @@ def _run_ingestion(
 
         try:
             ensure_bronze_version(db, storage, dataset, user_id)
-            ensure_dataset_asset(db, workspace_id, dataset)
+            asset = ensure_dataset_asset(db, workspace_id, dataset)
+            trust_service.compute_trust_best_effort(db, storage, workspace_id, asset, "INGESTION", user_id)
         except Exception:
             logger.exception("Failed to create Bronze lakehouse version for dataset %s", dataset.id)
 

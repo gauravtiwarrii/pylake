@@ -5,6 +5,7 @@ import { use, useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/components/auth-provider";
 import { useAIPageContext } from "@/components/ai-page-context";
+import { TrustBadge } from "@/components/trust/TrustBadge";
 
 type Asset = {
   id: string;
@@ -47,6 +48,7 @@ export default function CatalogPage({ params }: { params: Promise<{ workspaceId:
   const [search, setSearch] = useState("");
   const [layer, setLayer] = useState("");
   const [error, setError] = useState("");
+  const [trustScores, setTrustScores] = useState<Record<string, number | null>>({});
   useAIPageContext({
     page_type: "catalog",
     catalog_asset_id: selected?.id,
@@ -57,9 +59,10 @@ export default function CatalogPage({ params }: { params: Promise<{ workspaceId:
     const query = new URLSearchParams({ page: "1", page_size: "100" });
     if (search) query.set("search", search);
     if (layer) query.set("layer", layer);
-    const response = await api<{ items: Asset[] }>(`/api/v1/workspaces/${workspaceId}/catalog?${query}`);
+    const [response, trust] = await Promise.all([api<{ items: Asset[] }>(`/api/v1/workspaces/${workspaceId}/catalog?${query}`), api<{items:{asset_id:string;overall_score:number|null}[]}>(`/api/v1/workspaces/${workspaceId}/trust/summary?limit=100`)]);
     if (response.error) setError(response.error);
     else setAssets(response.data?.items ?? []);
+    if (trust.data) setTrustScores(Object.fromEntries(trust.data.items.map(item => [item.asset_id, item.overall_score])));
   }, [workspaceId, search, layer]);
 
   useEffect(() => {
@@ -119,6 +122,7 @@ export default function CatalogPage({ params }: { params: Promise<{ workspaceId:
             ) : assets.map((asset) => (
               <button key={asset.id} onClick={() => void selectAsset(asset)} aria-pressed={selected?.id === asset.id} className={`w-full rounded-xl border p-4 text-left transition-colors ${selected?.id === asset.id ? "border-[var(--accent)] bg-[var(--accent-soft)]" : "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)]"}`}>
                 <p className="font-medium">{asset.name}</p>
+                <div className="mt-2"><TrustBadge score={trustScores[asset.id]} /></div>
                 <p className="mt-1 text-xs text-[var(--muted)]">{asset.asset_type} · {asset.layer ?? "UNKNOWN"} · {asset.format ?? "unknown"}</p>
                 {asset.tags_json.length > 0 && <p className="mt-3 text-xs text-[var(--muted)]">{asset.tags_json.join(", ")}</p>}
               </button>
