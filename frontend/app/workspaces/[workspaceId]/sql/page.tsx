@@ -17,6 +17,7 @@ import {
   FileClock,
   History,
   Layers3,
+  ListChecks,
   LoaderCircle,
   Play,
   Plus,
@@ -56,6 +57,15 @@ type SqlResult = {
   total_rows_available: number;
   truncated: boolean;
   error: string | null;
+};
+type SqlAnalysis = {
+  validation_status: "VALID" | "INVALID";
+  valid: boolean;
+  error: string | null;
+  referenced_tables: { id: string; name: string; layer: string; row_count: number | null; columns: string[] }[];
+  referenced_columns: { table: string; name: string }[];
+  issues: { code: string; severity: string; message: string }[];
+  estimated_scanned_rows: number | null;
 };
 type HistoryItem = {
   id: string;
@@ -124,6 +134,9 @@ export default function SqlWorkspacePage({
   const [sql, setSql] = useState(initialSql);
   const [aiSqlText, setAiSqlText] = useState(initialSql);
   const [result, setResult] = useState<SqlResult | null>(null);
+  const [analysis, setAnalysis] = useState<SqlAnalysis | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState("");
   const [selectedSavedId, setSelectedSavedId] = useState<string | null>(null);
   const [panel, setPanel] = useState<ExplorerPanel>("catalog");
   const [search, setSearch] = useState("");
@@ -144,6 +157,11 @@ export default function SqlWorkspacePage({
   const executeRef = useRef<() => Promise<void>>(async () => {});
   const openSaveDialogRef = useRef<(saveAsNew?: boolean, query?: SavedQuery) => void>(() => {});
   const dragOriginRef = useRef<DragOrigin | null>(null);
+  const updateSqlDraft = (value: string) => {
+    setSql(value);
+    setAnalysis(null);
+    setAnalysisError("");
+  };
   useEffect(() => {
     const timeout = window.setTimeout(() => setAiSqlText(sql), 250);
     return () => window.clearTimeout(timeout);
@@ -155,6 +173,9 @@ export default function SqlWorkspacePage({
     [saved, selectedSavedId],
   );
   const canManageSaved = role === "OWNER" || role === "ADMIN" || role === "EDITOR";
+  const analyzedTables = (analysis?.referenced_tables ?? []).filter((table, index, all) =>
+    all.findIndex((candidate) => candidate.id === table.id) === index,
+  );
   const filteredCatalog = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return catalog.filter((table) =>
@@ -221,7 +242,10 @@ export default function SqlWorkspacePage({
       setSaved([]);
       setRole(null);
       setResult(null);
-      const importedSql = new URLSearchParams(window.location.search).get("sql_text");
+      setAnalysis(null);
+      setAnalysisError("");
+      const params = new URLSearchParams(window.location.search);
+      const importedSql = params.get("sql") ?? params.get("sql_text");
       setSql(importedSql ?? initialSql);
       setSelectedSavedId(null);
       setPanel("catalog");
@@ -290,6 +314,8 @@ export default function SqlWorkspacePage({
     setQueryError("");
     setActionError("");
     setResult(null);
+    setAnalysis(null);
+    setAnalysisError("");
     try {
       const response = await api<SqlResult>(`/api/v1/workspaces/${workspaceId}/sql/execute`, {
         method: "POST",
@@ -305,6 +331,26 @@ export default function SqlWorkspacePage({
       setRunning(false);
     }
   }, [load, running, selectedSaved, sql, workspaceId]);
+
+  const analyze = async () => {
+    if (!sql.trim() || analyzing) return;
+    setAnalyzing(true);
+    setAnalysisError("");
+    setAnalysis(null);
+    try {
+      const response = await api<SqlAnalysis>(`/api/v1/workspaces/${workspaceId}/sql/analyze`, {
+        method: "POST",
+        body: JSON.stringify({ sql }),
+      });
+      if (response.error) setAnalysisError(response.error);
+      else if (response.data) setAnalysis(response.data);
+      else setAnalysisError("The SQL analyzer returned no result.");
+    } catch {
+      setAnalysisError("Unable to reach the SQL analyzer. Check your connection and try again.");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
 
   useEffect(() => {
     executeRef.current = execute;
@@ -489,7 +535,7 @@ export default function SqlWorkspacePage({
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setSql(`SELECT *\nFROM ${quoteIdentifier(table.name)}\nLIMIT 100`);
+                                  updateSqlDraft(`SELECT *\nFROM ${quoteIdentifier(table.name)}\nLIMIT 100`);
                                   setSelectedSavedId(null);
                                 }}
                                 className="font-medium text-[var(--accent)] transition-colors hover:text-[var(--accent-strong)]"
@@ -552,7 +598,7 @@ export default function SqlWorkspacePage({
                         <div key={item.id} className={`rounded-lg border p-2.5 transition-colors ${selectedSavedId === item.id ? "border-[var(--accent)] bg-[var(--accent-soft)]" : "border-[var(--border)] hover:bg-[var(--surface-raised)]"}`}>
                           <button
                             type="button"
-                            onClick={() => { setSql(item.sql_text); setSelectedSavedId(item.id); }}
+                            onClick={() => { updateSqlDraft(item.sql_text); setSelectedSavedId(item.id); }}
                             className="block w-full text-left"
                           >
                             <span className="block truncate text-xs font-medium">{item.name}</span>
@@ -560,7 +606,7 @@ export default function SqlWorkspacePage({
                             <span className="mt-2 block max-h-8 overflow-hidden font-mono text-[9px] leading-4 text-[var(--muted)]">{item.sql_text}</span>
                           </button>
                           <div className="mt-2 flex items-center justify-end gap-1 border-t border-[var(--border)] pt-2">
-                            <button type="button" onClick={() => { setSql(item.sql_text); setSelectedSavedId(item.id); openSaveDialog(false, item); }} disabled={!canManageSaved} className="rounded px-2 py-1 text-[10px] text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] disabled:opacity-40">Edit details</button>
+                            <button type="button" onClick={() => { updateSqlDraft(item.sql_text); setSelectedSavedId(item.id); openSaveDialog(false, item); }} disabled={!canManageSaved} className="rounded px-2 py-1 text-[10px] text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] disabled:opacity-40">Edit details</button>
                             <button type="button" aria-label={`Delete saved query ${item.name}`} onClick={() => requestDelete("saved", item.id, item.name)} disabled={!canManageSaved} className="rounded p-1.5 text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--danger)] disabled:opacity-40"><Trash2 size={13} /></button>
                           </div>
                         </div>
@@ -598,7 +644,7 @@ export default function SqlWorkspacePage({
                         <div key={item.id} className="group rounded-lg border border-transparent p-2 transition-colors hover:border-[var(--border)] hover:bg-[var(--surface-raised)]">
                           <button
                             type="button"
-                            onClick={() => { setSql(item.sql_text); setSelectedSavedId(null); }}
+                            onClick={() => { updateSqlDraft(item.sql_text); setSelectedSavedId(null); }}
                             className="block w-full text-left"
                           >
                             <span className="flex items-center gap-1.5 text-[10px]">
@@ -655,6 +701,14 @@ export default function SqlWorkspacePage({
                   )}
                   <button
                     type="button"
+                    onClick={() => void analyze()}
+                    disabled={analyzing || !sql.trim()}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-strong)] px-2.5 text-[11px] font-medium transition-colors hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <ListChecks size={13} /> {analyzing ? "Analyzing…" : "Analyze"}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => void execute()}
                     disabled={running || !sql.trim()}
                     className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--accent)] px-3 text-[11px] font-semibold text-[var(--accent-foreground)] transition-colors hover:bg-[var(--accent-strong)] disabled:cursor-not-allowed disabled:opacity-60"
@@ -670,7 +724,7 @@ export default function SqlWorkspacePage({
                 language="sql"
                 theme={theme === "dark" ? "vs-dark" : "light"}
                 value={sql}
-                onChange={(value) => setSql(value ?? "")}
+                onChange={(value) => updateSqlDraft(value ?? "")}
                 onMount={(editor, monaco) => {
                   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, () => { void executeRef.current(); });
                   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => openSaveDialogRef.current(false));
@@ -697,6 +751,18 @@ export default function SqlWorkspacePage({
                   quickSuggestions: true,
                 }}
               />
+              {(analysis || analysisError) && <section aria-label="SQL analysis" className="border-t border-[var(--border)] bg-[var(--surface-raised)] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div><h3 className="text-sm font-semibold">SQL analysis</h3><p className="mt-1 text-xs text-[var(--muted)]">Deterministic checks only. This analysis does not execute your query.</p></div>
+                  {analysis && <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${analysis.valid ? "border-emerald-500/30 text-emerald-300" : "border-rose-500/30 text-rose-300"}`}>{analysis.validation_status}</span>}
+                </div>
+                {analysisError && <p role="alert" className="mt-3 text-xs text-[var(--danger)]">{analysisError}</p>}
+                {analysis && !analysis.valid && <p role="alert" className="mt-3 text-xs text-[var(--danger)]">{analysis.error ?? "SQL did not pass read-only validation."}</p>}
+                {analysis?.valid && <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <div><p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">Estimated scanned rows</p><p className="mt-1 text-lg font-semibold tabular-nums">{analysis.estimated_scanned_rows?.toLocaleString() ?? "Unknown"}</p><p className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">Referenced tables / columns</p><ul className="mt-1 space-y-1 text-xs">{analyzedTables.map((table) => <li key={table.id}><span className="font-medium">{table.name}</span> · {table.layer}{table.row_count != null ? ` · ${table.row_count.toLocaleString()} rows` : ""}<span className="block text-[10px] text-[var(--muted)]">{analysis.referenced_columns.filter((column) => column.table === table.name).map((column) => column.name).join(", ") || "No columns resolved"}</span></li>)}</ul></div>
+                  <div><p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">Issues</p>{analysis.issues.length ? <ul className="mt-1 space-y-2">{analysis.issues.map((issue) => <li key={issue.code} className="rounded-lg border border-[var(--border)] p-2"><span className="text-[10px] font-semibold">{issue.code} · {issue.severity}</span><p className="mt-0.5 text-xs text-[var(--muted)]">{issue.message}</p></li>)}</ul> : <p className="mt-1 text-xs text-emerald-300">No issues detected.</p>}</div>
+                </div>}
+              </section>}
               <div
                 role="separator"
                 aria-label="Resize SQL editor and results"

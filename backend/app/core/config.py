@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     pipeline_step_timeout_seconds: int = 300
     pipeline_max_retries: int = 3
     trust_sample_rows: int = Field(default=100000, ge=1, le=100000)
+    ask_max_rows: int = Field(default=200, ge=1, le=1000)
     worker_stale_seconds: int = 90
     auth_secret: str = "change-this-secret-before-production"
     auth_cookie_name: str = "pylake_session"

@@ -16,6 +16,7 @@ export type AIPageType =
   | "audit"
   | "workspace"
   | "autopilot"
+  | "ask"
   | "ai";
 
 export type AIPageContextValue = {
@@ -38,6 +39,7 @@ export function pageTypeFromPath(pathname: string): AIPageType {
   if (pathname.includes("/sql")) return "sql";
   if (pathname.includes("/pipelines")) return "pipelines";
   if (pathname.includes("/autopilot")) return "autopilot";
+  if (pathname.includes("/ask")) return "ask";
   if (pathname.includes("/catalog")) return "catalog";
   if (pathname.includes("/audit")) return "audit";
   if (pathname.includes("/settings")) return "workspace";
