@@ -20,11 +20,11 @@ jobs:
       PYTHON_DOTENV_DISABLED: '1'
     steps:
       - name: Check out repository and full Git metadata
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: pip
@@ -36,7 +36,7 @@ jobs:
       - name: Run backend test suite
         env:
           DATABASE_URL: sqlite:///./ci_tests.db
-        run: python -m pytest -o addopts='' -q
+        run: python -m pytest -o addopts='' -q -rf --tb=short
       - name: Verify migrations on temporary SQLite database
         env:
           DATABASE_URL: sqlite:///./ci_migrations.db
@@ -52,11 +52,11 @@ jobs:
         working-directory: frontend
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
-      - name: Set up Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/checkout@v5
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
