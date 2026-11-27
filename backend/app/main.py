@@ -21,6 +21,7 @@ from app.api.v1.ai import router as ai_router
 from app.api.v1.autopilot import router as autopilot_router
 from app.api.v1.trust import router as trust_router
 from app.ask.router import router as ask_router
+from app.api.v1.impact import router as impact_router
 from app.core.config import get_settings
 from app.core.db import Base, engine
 from app.core.security import sha256
@@ -102,6 +103,7 @@ app.include_router(ai_router, prefix=settings.api_v1_prefix)
 app.include_router(autopilot_router, prefix=settings.api_v1_prefix)
 app.include_router(trust_router, prefix=settings.api_v1_prefix)
 app.include_router(ask_router, prefix=settings.api_v1_prefix)
+app.include_router(impact_router, prefix=settings.api_v1_prefix)
 
 
 class CsrfMiddleware(BaseHTTPMiddleware):

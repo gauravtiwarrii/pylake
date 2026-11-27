@@ -291,21 +291,23 @@ def catalog_impact(
     user: User = Depends(get_current_user),
 ) -> dict:
     membership(db, workspace_id, user.id)
-    graph = lineage_neighbors(db, workspace_id, asset_id, "downstream")
+    from app.impact.graph import build_graph
+
+    graph = build_graph(db, workspace_id, asset_id, depth=5)
     downstream_assets = [
-        node for node in graph["nodes"]
-        if node["id"] != str(asset_id)
+        {"id": node.get("asset_id"), "name": node["name"], "type": "ASSET", "layer": node.get("layer"),
+         "asset_type": node.get("asset_type")}
+        for node in graph["nodes"] if node["type"] == "asset" and node.get("asset_id") != str(asset_id)
     ]
     pipelines = sorted({
-        edge["target_id"]
-        for edge in graph["edges"]
-        if edge["target_type"] == "PIPELINE" or edge["source_type"] == "PIPELINE"
+        node.get("pipeline_id") for node in graph["nodes"] if node["type"] == "pipeline" and node.get("pipeline_id")
     })
     return {
         "asset_id": str(asset_id),
         "downstream_asset_count": len(downstream_assets),
         "downstream_assets": downstream_assets,
         "pipelines": pipelines,
-        "coverage": "RECORDED_DEPENDENCIES",
-        "unknown_dependencies": "Unknown assets and external dependencies are not included",
+        "coverage": "RECORDED_AND_PARSED_DEPENDENCIES",
+        "unknown_dependencies": graph["uncovered"],
+        "graph": graph,
     }

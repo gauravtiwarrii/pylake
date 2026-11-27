@@ -112,6 +112,11 @@ class CreateQualityRuleArgs(QualityRuleCreate):
     asset_id: UUID
 
 
+class SimulateImpactArgs(BaseModel):
+    asset_id: UUID
+    change: dict[str, Any]
+
+
 @dataclass(frozen=True)
 class ActionDefinition:
     key: str
@@ -217,7 +222,7 @@ def _preview_promote(db: Session, workspace_id: UUID, args: dict[str, Any]) -> d
     rank = {"BRONZE": 1, "SILVER": 2, "GOLD": 3}
     if rank[payload.target_layer] < rank[source.layer.value]:
         raise ActionValidationError("Promotion cannot move data backward")
-    return {
+    result = {
         "action": "promote_table",
         "table_id": str(table.id),
         "table_name": table.name,
@@ -228,6 +233,8 @@ def _preview_promote(db: Session, workspace_id: UUID, args: dict[str, Any]) -> d
         "writes": False,
         "note": "Preview only — a new lakehouse version will be created on execute",
     }
+    result.update(_table_impact_summary(db, workspace_id, table.id))
+    return result
 
 
 def _execute_promote(db: Session, workspace_id: UUID, user: User, args: dict[str, Any]) -> dict[str, Any]:
@@ -348,7 +355,7 @@ def _preview_transform(db: Session, workspace_id: UUID, args: dict[str, Any]) ->
         payload.table_id,
     )
     source = _latest_version(db, table.id, payload.source_version_id)
-    return {
+    result = {
         "action": "apply_transformation",
         "table_id": str(table.id),
         "table_name": table.name,
@@ -358,6 +365,41 @@ def _preview_transform(db: Session, workspace_id: UUID, args: dict[str, Any]) ->
         "writes": False,
         "note": "Preview only — a new lakehouse version will be created on execute",
     }
+    result.update(_table_impact_summary(db, workspace_id, table.id))
+    return result
+
+
+def _table_impact_summary(db: Session, workspace_id: UUID, table_id: UUID) -> dict[str, Any]:
+    """Include existing downstream context in previews when dependencies exist."""
+    from app.impact.graph import build_graph
+
+    asset = db.query(CatalogAsset).filter(CatalogAsset.workspace_id == workspace_id,
+        CatalogAsset.lakehouse_table_id == table_id).first()
+    if not asset:
+        return {}
+    graph = build_graph(db, workspace_id, asset.id, depth=5)
+    dependents = [node for node in graph["nodes"] if node.get("type") in {
+        "pipeline_step", "saved_query", "observed_query", "asset"} and node.get("id") != f"asset:{asset.id}"]
+    if not dependents:
+        return {}
+    return {"impact_summary": {"downstream_count": len(dependents), "truncated": graph["truncated"],
+        "uncovered": graph["uncovered"],
+        "note": "Existing downstream dependencies may be affected; this preview does not apply changes."}}
+
+
+def _preview_impact(db: Session, workspace_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+    from app.impact.simulate import simulate_change
+
+    payload = SimulateImpactArgs.model_validate(args)
+    try:
+        result = simulate_change(db, workspace_id, payload.asset_id, payload.change)
+    except (LookupError, ValueError) as error:
+        raise ActionValidationError(str(error)) from error
+    return {"action": "simulate_impact", "writes": False, "simulation": result}
+
+
+def _execute_impact(db: Session, workspace_id: UUID, user: User, args: dict[str, Any]) -> dict[str, Any]:
+    return _preview_impact(db, workspace_id, args)
 
 
 def _execute_transform(db: Session, workspace_id: UUID, user: User, args: dict[str, Any]) -> dict[str, Any]:
@@ -809,6 +851,11 @@ ACTION_REGISTRY: dict[str, ActionDefinition] = {
         key="create_quality_rule", title="Create quality rule", min_role="EDITOR",
         risk_level="MEDIUM", requires_approval=True, args_schema=CreateQualityRuleArgs,
         preview=_preview_quality_rule, execute=_execute_quality_rule,
+    ),
+    "simulate_impact": ActionDefinition(
+        key="simulate_impact", title="Simulate schema impact", min_role="VIEWER",
+        risk_level="LOW", requires_approval=False, args_schema=SimulateImpactArgs,
+        preview=_preview_impact, execute=_execute_impact,
     ),
 }
 
