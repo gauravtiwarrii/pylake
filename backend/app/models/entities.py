@@ -255,6 +255,19 @@ class QueryHistory(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
 
 
+class AskHistory(Base):
+    __tablename__ = "ask_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_value)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answer_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    sql_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    citations_json: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, server_default=func.now())
+
+
 class SavedQuery(Base):
     __tablename__ = "saved_queries"
     __table_args__ = (UniqueConstraint("workspace_id", "name", name="uq_saved_query_workspace_name"),)
