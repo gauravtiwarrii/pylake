@@ -11,6 +11,10 @@ class SQLExecuteRequest(BaseModel):
     limit: int | None = Field(default=None, ge=1, le=1000)
 
 
+class SQLAnalyzeRequest(BaseModel):
+    sql: str = Field(min_length=1, max_length=100_000)
+
+
 class SQLColumn(BaseModel):
     name: str
     type: str

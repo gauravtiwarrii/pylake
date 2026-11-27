@@ -3,6 +3,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+import sqlglot
+from sqlglot import exp
 
 from app.api.dependencies import get_current_user
 from app.api.v1.workspaces import membership, require_role
@@ -28,6 +30,7 @@ from app.schemas.sql import (
     SavedQueryCreate,
     SavedQueryResponse,
     SavedQueryUpdate,
+    SQLAnalyzeRequest,
 )
 from app.storage.factory import get_storage
 from app.services.catalog import ensure_table_asset
@@ -36,6 +39,100 @@ from app.engines.query_validator import validate_read_only_sql
 from app.engines.catalog_resolver import resolve_catalog
 
 router = APIRouter(prefix="/workspaces", tags=["sql"])
+
+
+@router.post("/{workspace_id}/sql/analyze")
+def analyze_sql(
+    workspace_id: UUID,
+    payload: SQLAnalyzeRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    membership(db, workspace_id, user.id)
+    try:
+        table_names, _ = validate_read_only_sql(payload.sql)
+    except SQLValidationError as error:
+        return {"validation_status": "INVALID", "valid": False, "error": safe_error(error),
+                "referenced_tables": [], "referenced_columns": [], "citations": [], "issues": [],
+                "estimated_scanned_rows": None}
+    try:
+        resolved = resolve_catalog(db, workspace_id, table_names)
+    except KeyError as error:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="A referenced table is unavailable in this workspace") from error
+
+    parsed = sqlglot.parse_one(payload.sql, dialect="duckdb")
+    tables_by_logical = {}
+    for logical_name, version in resolved.items():
+        table = db.query(LakehouseTable).filter(
+            LakehouseTable.id == version.lakehouse_table_id,
+            LakehouseTable.workspace_id == workspace_id,
+        ).first()
+        if table:
+            tables_by_logical[logical_name] = (table, version)
+
+    issues = []
+    def issue(code: str, message: str, severity: str = "MEDIUM") -> None:
+        if not any(item["code"] == code for item in issues):
+            issues.append({"code": code, "severity": severity, "message": message})
+
+    for star in parsed.find_all(exp.Star):
+        if not isinstance(star.parent, exp.Count):
+            issue("SELECT_STAR", "SELECT * returns every column; name only the columns you need.", "LOW")
+            break
+    scanned = 0
+    referenced_tables = []
+    citations = []
+    alias_to_logical = {}
+    for table_ref in parsed.find_all(exp.Table):
+        name = table_ref.name.lower().replace("-", "_").replace(" ", "_")
+        if name not in tables_by_logical:
+            continue
+        table, version = tables_by_logical[name]
+        alias_to_logical[(table_ref.alias or table_ref.name).lower()] = name
+        columns = (version.schema_json or {}).get("columns", [])
+        referenced_tables.append({"id": str(table.id), "name": table.name,
+                                  "layer": version.layer.value,
+                                  "row_count": version.row_count,
+                                  "columns": [column.get("name") for column in columns if isinstance(column, dict)]})
+        citations.append({"type": "table", "id": str(table.id), "name": table.name})
+        scanned += version.row_count or 0
+        if (version.row_count or 0) > 10_000 and parsed.args.get("limit") is None:
+            issue("MISSING_LIMIT_LARGE_TABLE", f"Query reads large table '{table.name}' without LIMIT.", "HIGH")
+
+    referenced_columns = []
+    for column in parsed.find_all(exp.Column):
+        table_name = alias_to_logical.get((column.table or "").lower())
+        if not table_name and len(tables_by_logical) == 1:
+            table_name = next(iter(tables_by_logical))
+        if table_name:
+            table, _ = tables_by_logical[table_name]
+            item = {"table": table.name, "name": column.name}
+            if item not in referenced_columns:
+                referenced_columns.append(item)
+                citations.append({"type": "column", "id": str(table.id), "name": table.name, "column": column.name})
+
+    for join in parsed.find_all(exp.Join):
+        if (str(join.args.get("kind", "")).upper() == "CROSS" or
+                (join.args.get("on") is None and join.args.get("using") is None)):
+            issue("CARTESIAN_JOIN", "A join without a matching condition may create a cartesian product.", "HIGH")
+    for cte in parsed.find_all(exp.CTE):
+        cte_name = cte.alias_or_name.lower()
+        refs = [table for table in parsed.find_all(exp.Table) if table.name.lower() == cte_name]
+        if not refs:
+            issue("UNUSED_CTE", f"Common table expression '{cte.alias_or_name}' is never used.", "LOW")
+    where = parsed.args.get("where")
+    if where:
+        for function in where.find_all(exp.Func):
+            if any(True for _ in function.find_all(exp.Column)):
+                issue("FUNCTION_ON_FILTER_COLUMN", "A function wraps a filtered column and may prevent index or scan optimizations.", "LOW")
+                break
+    if parsed.args.get("order") is not None and parsed.args.get("limit") is None:
+        issue("ORDER_BY_WITHOUT_LIMIT", "ORDER BY without LIMIT may sort an unnecessarily large result.", "MEDIUM")
+
+    return {"validation_status": "VALID", "valid": True, "error": None,
+            "referenced_tables": referenced_tables, "referenced_columns": referenced_columns,
+            "citations": citations, "issues": issues, "estimated_scanned_rows": scanned}
 
 
 def safe_error(error: Exception) -> str:

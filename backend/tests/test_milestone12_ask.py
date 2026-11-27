@@ -189,6 +189,68 @@ def test_ai_cell_prompt_injection_does_not_control_sql_or_answer_type(ask_env, m
     assert "ignore previous instructions" not in str(fake.messages)
 
 
+def test_sql_analyze_reports_deterministic_issues_and_clean_query(ask_env):
+    client, sessions, _ = ask_env
+    workspace_id, headers = workspace(client, "analyze@example.com", "analyze-space")
+    _, table, _ = data_asset(client, workspace_id, headers)
+    with sessions() as db:
+        from app.models.entities import DatasetVersion, LakehouseVersionStatus
+        version = db.query(DatasetVersion).filter(
+            DatasetVersion.lakehouse_table_id == UUID(table["id"]),
+            DatasetVersion.status == LakehouseVersionStatus.COMPLETED,
+        ).order_by(DatasetVersion.version_number.desc()).first()
+        version.row_count = 20_001
+        db.commit()
+
+    url = f"/api/v1/workspaces/{workspace_id}/sql/analyze"
+    query = ("WITH spare AS (SELECT revenue FROM sales) "
+             "SELECT * FROM sales s CROSS JOIN sales t "
+             "WHERE LOWER(s.product) = 'a' ORDER BY revenue")
+    response = client.post(url, json={"sql": query}, headers=headers)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["valid"] is True and body["validation_status"] == "VALID"
+    assert {item["code"] for item in body["issues"]} >= {
+        "SELECT_STAR", "MISSING_LIMIT_LARGE_TABLE", "CARTESIAN_JOIN", "UNUSED_CTE",
+        "FUNCTION_ON_FILTER_COLUMN", "ORDER_BY_WITHOUT_LIMIT",
+    }
+    assert body["estimated_scanned_rows"] == 60_003
+    assert body["referenced_tables"][0]["name"] == "sales"
+    assert any(item["name"] == "product" for item in body["referenced_columns"])
+    clean = client.post(url, json={"sql": "SELECT product, revenue FROM sales LIMIT 10"}, headers=headers)
+    assert clean.status_code == 200 and clean.json()["issues"] == []
+    invalid = client.post(url, json={"sql": "DROP TABLE sales"}, headers=headers)
+    assert invalid.status_code == 200 and invalid.json()["valid"] is False
+    assert "DROP TABLE" not in invalid.json()["error"]
+
+
+def test_sql_analyze_rejects_foreign_tables_and_allows_viewers(ask_env):
+    client, sessions, _ = ask_env
+    workspace_id, headers = workspace(client, "analyze-member@example.com", "analyze-member")
+    _, _, _ = data_asset(client, workspace_id, headers)
+    other_workspace, other_headers = workspace(client, "analyze-other@example.com", "analyze-other")
+    data_asset(client, other_workspace, other_headers)
+    with sessions() as db:
+        from app.models.entities import LakehouseTable
+        foreign_catalog_table = db.query(LakehouseTable).filter(LakehouseTable.workspace_id == UUID(other_workspace)).one()
+        foreign_catalog_table.name = "secret_sales"
+        db.commit()
+    with sessions() as db:
+        member = db.query(WorkspaceMember).filter(WorkspaceMember.workspace_id == UUID(workspace_id)).one()
+        member.role = WorkspaceRole.VIEWER
+        db.commit()
+    assert client.post("/api/v1/auth/login", json={"email": "analyze-member@example.com", "password": "a-secure-password"}).status_code == 200
+    headers = {"X-CSRF-Token": client.cookies["pylake_csrf"]}
+    url = f"/api/v1/workspaces/{workspace_id}/sql/analyze"
+    allowed = client.post(url, json={"sql": "SELECT product FROM sales LIMIT 5"}, headers=headers)
+    assert allowed.status_code == 200, allowed.text
+    rejected = client.post(url, json={"sql": "SELECT * FROM secret_sales"}, headers=headers)
+    assert rejected.status_code == 400 and "workspace" in rejected.json()["detail"].lower()
+    _, outsider_headers = workspace(client, "analyze-outsider@example.com", "analyze-outsider")
+    outsider = client.post(url, json={"sql": "SELECT 1"}, headers=outsider_headers)
+    assert outsider.status_code == 404
+
+
 def test_viewer_allowed_nonmember_csrf_and_rate_limit(ask_env, monkeypatch):
     client, sessions, _ = ask_env
     workspace_id, headers = workspace(client, "ask-viewer@example.com", "ask-viewer")
